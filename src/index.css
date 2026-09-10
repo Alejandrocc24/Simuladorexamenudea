@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+:root {
+  --color-udea: #005F2B;
+  --color-udea-dark: #004D23;
+  --color-udea-light: #007A37;
+  --color-udea-subtle: #E8F5EE;
+}
