@@ -308,13 +308,13 @@ export function MockExam() {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4 space-y-8 animate-in fade-in">
         {/* Header Hero - Institutional UdeA Green */}
-        <div className="bg-gradient-to-r from-[#005F2B] via-[#005526] to-[#004720] rounded-3xl p-8 text-white shadow-lg border border-[#004720]">
+        <div className="bg-gradient-to-r from-[#005F2B] via-[#005526] to-[#004720] rounded-3xl p-6 md:p-8 text-white shadow-lg border border-[#004720]">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-3">
               <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold uppercase tracking-wider text-emerald-200 border border-white/10">
                 Condiciones Reales de Admisión
               </span>
-              <h1 className="text-3xl md:text-4xl font-black tracking-tight">Simulacro Oficial UdeA</h1>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight">Simulacro Oficial UdeA</h1>
               <p className="text-emerald-100 text-sm md:text-base max-w-xl leading-relaxed">
                 Mide tu preparación para el examen de la Universidad de Antioquia bajo condiciones estrictas: 
                 80 preguntas, cronómetro de 3 horas y evaluación analítica por áreas.
@@ -442,19 +442,19 @@ export function MockExam() {
     const isTimeUrgent = timeRemainingSeconds < 15 * 60; // Less than 15 minutes left
 
     return (
-      <div className="max-w-6xl mx-auto py-4 px-4 space-y-4 animate-in fade-in">
-        {/* Sticky Control Header */}
-        <div className="sticky top-16 z-20 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between gap-4">
+      <div className="max-w-6xl mx-auto py-4 px-0 sm:px-4 space-y-4 animate-in fade-in">
+        {/* Sticky Control Header: en móvil ocupa 2 filas compactas */}
+        <div className="sticky top-2 md:top-16 z-20 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-2xl p-3 sm:p-4 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Left info */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#005F2B]/10 dark:bg-[#005F2B]/30 text-[#005F2B] dark:text-emerald-400 flex items-center justify-center font-bold">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#005F2B]/10 dark:bg-[#005F2B]/30 text-[#005F2B] dark:text-emerald-400 flex items-center justify-center font-bold text-sm flex-shrink-0">
               Q{currentQuestionIndex + 1}
             </div>
-            <div>
-              <p className="font-bold text-sm text-gray-900 dark:text-white">
+            <div className="min-w-0">
+              <p className="font-bold text-[13px] sm:text-sm text-gray-900 dark:text-white truncate">
                 Pregunta {currentQuestionIndex + 1} de {examQuestions.length}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 truncate">
                 {currentQ.sectionId === 'razonamiento-logico' ? 'Razonamiento Lógico' : 'Competencia Lectora'}
               </p>
             </div>
@@ -462,9 +462,9 @@ export function MockExam() {
 
           {/* Center Timer */}
           <div className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-base font-black transition-colors",
-            isTimeUrgent 
-              ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900 animate-pulse" 
+            "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl font-mono text-sm sm:text-base font-black transition-colors flex-shrink-0",
+            isTimeUrgent
+              ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900 animate-pulse"
               : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
           )}>
             <Clock className="w-4 h-4" />
@@ -496,13 +496,13 @@ export function MockExam() {
         </div>
 
         {/* Progress Strip */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl px-4 py-2.5 border border-gray-100 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <div className="flex items-center gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl px-3 sm:px-4 py-2.5 border border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-x-4 gap-y-2 justify-between text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Respondidas: <strong className="text-emerald-600">{answeredCount}</strong></span>
-            <span>Sin responder: <strong className="text-gray-700 dark:text-gray-300">{examQuestions.length - answeredCount}</strong></span>
+            <span className="hidden sm:inline">Sin responder: <strong className="text-gray-700 dark:text-gray-300">{examQuestions.length - answeredCount}</strong></span>
             <span>Marcadas: <strong className="text-amber-500">{flaggedQuestionIds.size}</strong></span>
           </div>
-          <div className="w-32 bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
+          <div className="w-24 sm:w-32 bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
             <div 
               className="bg-emerald-500 h-full transition-all duration-300"
               style={{ width: `${(answeredCount / examQuestions.length) * 100}%` }}
@@ -513,7 +513,7 @@ export function MockExam() {
         {/* Two-Column Grid: Question Details & Navigation Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Question Panel (3 cols) */}
-          <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 space-y-6">
+          <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-4 sm:p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 space-y-6 min-w-0">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-700">
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-bold uppercase">
@@ -550,7 +550,7 @@ export function MockExam() {
             />
 
             {/* Statement */}
-            <div className="text-gray-900 dark:text-white text-lg leading-relaxed font-medium">
+            <div className="text-gray-900 dark:text-white text-base sm:text-lg leading-relaxed font-medium break-words">
               <MathRenderer text={currentQ.statement} />
             </div>
 

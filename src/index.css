@@ -6,3 +6,27 @@
   --color-udea-light: #007A37;
   --color-udea-subtle: #E8F5EE;
 }
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  overflow-x: clip;
+}
+
+/* Las fórmulas KaTeX en bloque hacen scroll horizontal en pantallas angostas
+   en vez de romper el layout */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+  max-width: 100%;
+}
+
+/* Imágenes del contenido renderizado nunca desbordan su tarjeta */
+.prose-math img {
+  max-width: 100%;
+  height: auto;
+}

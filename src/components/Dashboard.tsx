@@ -102,10 +102,10 @@ export function Dashboard() {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
           Prepárate para el examen de admisión UdeA
         </h1>
-        <p className="mt-2 text-lg text-gray-600 dark:text-gray-300">
+        <p className="mt-2 text-base sm:text-lg text-gray-600 dark:text-gray-300">
           Practica, simula y compite con preguntas reales de exámenes anteriores.
         </p>
       </header>
@@ -170,7 +170,7 @@ export function Dashboard() {
 
       {/* Rendimiento por componente */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white mt-4 mb-2">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-white mt-4 mb-2">
           Rendimiento por componente
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
@@ -230,7 +230,7 @@ export function Dashboard() {
 
       {/* Action Cards */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white mt-4 mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-white mt-4 mb-6">
           Modos de Estudio y Competencia
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">

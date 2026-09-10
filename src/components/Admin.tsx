@@ -87,7 +87,7 @@ export function Admin() {
     <div className="max-w-full px-4 xl:px-8 mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 pb-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Panel de Administración</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Panel de Administración</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Carga exámenes desde JSON a Supabase, revisa, edita o elimina preguntas.
           </p>

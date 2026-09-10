@@ -1,28 +1,28 @@
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../context/AuthContext';
 
+export interface MatchPlayer {
+  userId: string;
+  displayName: string;
+  photoURL?: string;
+  score: number;
+  answeredCount: number;
+  isHost: boolean;
+}
+
 export interface MatchRoom {
   id: string;
   code: string;
   status: 'waiting' | 'in_progress' | 'completed';
-  sectionId: string;
   hostId: string;
-  hostName: string;
-  hostPhotoURL?: string;
-  guestId?: string;
-  guestName?: string;
-  guestPhotoURL?: string;
-  hostScore: number;
-  guestScore: number;
-  hostCurrentQuestion: number;
-  guestCurrentQuestion: number;
+  players: MatchPlayer[];
+  maxParticipants: number;
   totalQuestions: number;
   questionIds: string[];
   answersKey?: Record<string, string>;
   answersHashes?: Record<string, string>;
   winnerId?: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface PublicLeaderboardUser {
@@ -43,7 +43,6 @@ function generateRoomCode(): string {
   return code;
 }
 
-// Anti-cheat local (compatibilidad): hash simple para no exponer respuestas en memoria
 export function hashAnswer(questionId: string, answer: string): string {
   let hash = 0;
   const str = `${questionId}#${answer.trim().toUpperCase()}#UdeA_AntiCheat_2026`;
@@ -64,60 +63,70 @@ function toAppStatus(estado: DbEstado): MatchRoom['status'] {
 }
 
 async function buildMatchRoom(roomId: string, answersKey?: Record<string, string>): Promise<MatchRoom> {
-  const { data: room, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
-  if (error || !room) throw new Error('La sala ya no existe.');
+  const { data: roomData, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
+  if (error || !roomData) throw new Error('La sala ya no existe.');
 
-  const r = room as Record<string, unknown>;
+  const r = roomData as Record<string, unknown>;
   const questionIds = Array.isArray(r['question_ids']) ? (r['question_ids'] as string[]) : [];
+  const hostId = String(r['host_id'] ?? '');
+  const maxParticipants = typeof r['max_participants'] === 'number' ? (r['max_participants'] as number) : 15;
 
-  const { data: participants } = await supabase.from('room_participants').select('*').eq('room_id', roomId);
+  const { data: participants } = await supabase
+    .from('room_participants')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('joined_at', { ascending: true });
   const parts = (participants ?? []) as Array<Record<string, unknown>>;
 
-  const hostId = String(r['host_id'] ?? '');
-  const hostPart = parts.find((p) => String(p['user_id']) === hostId);
-  const guestPart = parts.find((p) => String(p['user_id']) !== hostId);
-
-  const { data: answers } = await supabase.from('room_answers').select('user_id,question_id').eq('room_id', roomId);
+  const { data: answers } = await supabase.from('room_answers').select('user_id').eq('room_id', roomId);
   const ansList = (answers ?? []) as Array<Record<string, unknown>>;
-  const hostAnswered = ansList.filter((a) => String(a['user_id']) === hostId).length;
-  const guestAnswered = guestPart ? ansList.filter((a) => String(a['user_id']) === String(guestPart['user_id'])).length : 0;
-
-  const hostScore = typeof hostPart?.['puntaje'] === 'number' ? (hostPart['puntaje'] as number) : 0;
-  const guestScore = guestPart && typeof guestPart['puntaje'] === 'number' ? (guestPart['puntaje'] as number) : 0;
-
-  // Nombres desde profiles
-  let hostName = 'Anfitrión';
-  let guestName: string | undefined;
-  const ids = [hostId, guestPart ? String(guestPart['user_id']) : ''].filter(Boolean);
-  if (ids.length > 0) {
-    const { data: profs } = await supabase.from('profiles').select('id,nombre').in('id', ids);
-    const map = new Map((profs ?? []).map((p: Record<string, unknown>) => [String(p['id']), String(p['nombre'] ?? '')]));
-    if (map.get(hostId)) hostName = map.get(hostId)!;
-    if (guestPart) guestName = map.get(String(guestPart['user_id'])) ?? 'Rival';
+  const answeredByUser = new Map<string, number>();
+  for (const a of ansList) {
+    const uid = String(a['user_id']);
+    answeredByUser.set(uid, (answeredByUser.get(uid) ?? 0) + 1);
   }
 
+  const partIds = parts.map((p) => String(p['user_id']));
+  const nameMap = new Map<string, string>();
+  if (partIds.length > 0) {
+    const { data: profs } = await supabase.from('profiles').select('id,nombre').in('id', partIds);
+    for (const p of (profs ?? []) as Array<Record<string, unknown>>) {
+      nameMap.set(String(p['id']), String(p['nombre'] ?? ''));
+    }
+  }
+
+  const players: MatchPlayer[] = parts.map((p) => {
+    const userId = String(p['user_id']);
+    return {
+      userId,
+      displayName: nameMap.get(userId) ?? 'Aspirante',
+      score: typeof p['puntaje'] === 'number' ? (p['puntaje'] as number) : 0,
+      answeredCount: Math.min(answeredByUser.get(userId) ?? 0, questionIds.length),
+      isHost: userId === hostId,
+    };
+  });
+
   const status = toAppStatus((r['estado'] as DbEstado) ?? 'esperando');
+
   let winnerId: string | undefined;
   if (status === 'completed') {
-    if (!guestPart) winnerId = 'cancelled';
-    else if (hostScore > guestScore) winnerId = hostId;
-    else if (guestScore > hostScore) winnerId = String(guestPart['user_id']);
-    else winnerId = 'draw';
+    if (players.length < 2) {
+      winnerId = 'cancelled';
+    } else {
+      const sorted = [...players].sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
+      const topScore = sorted[0].score;
+      const topPlayers = sorted.filter((p) => p.score === topScore);
+      winnerId = topPlayers.length > 1 ? 'draw' : sorted[0].userId;
+    }
   }
 
   return {
     id: String(r['id']),
     code: String(r['codigo'] ?? ''),
     status,
-    sectionId: 'all',
     hostId,
-    hostName,
-    guestId: guestPart ? String(guestPart['user_id']) : undefined,
-    guestName,
-    hostScore,
-    guestScore,
-    hostCurrentQuestion: Math.min(hostAnswered, questionIds.length),
-    guestCurrentQuestion: Math.min(guestAnswered, questionIds.length),
+    players,
+    maxParticipants,
     totalQuestions: questionIds.length,
     questionIds,
     answersKey,
@@ -126,7 +135,6 @@ async function buildMatchRoom(roomId: string, answersKey?: Record<string, string
       : undefined,
     winnerId,
     createdAt: String(r['created_at'] ?? new Date().toISOString()),
-    updatedAt: String(r['created_at'] ?? new Date().toISOString()),
   };
 }
 
@@ -155,37 +163,37 @@ export async function createMatchRoom(
 
 export async function joinMatchByCode(code: string, guestUser: UserProfile): Promise<MatchRoom> {
   const cleanCode = code.trim().toUpperCase();
-  const { data, error } = await supabase
-    .from('rooms')
-    .select('id,host_id,estado')
-    .eq('codigo', cleanCode)
-    .eq('estado', 'esperando')
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('join_room', { p_code: cleanCode, p_user_id: guestUser.id });
   if (error) throw error;
-  if (!data) throw new Error('No se encontró ninguna sala disponible con ese código.');
 
-  const row = data as Record<string, unknown>;
-  const roomId = String(row['id']);
-  if (String(row['host_id']) === guestUser.id) {
-    return buildMatchRoom(roomId);
+  const rows = Array.isArray(data) ? data : [data];
+  const res = (rows?.[0] ?? {}) as Record<string, unknown>;
+  const ok = Boolean(res['ok']);
+  const message = String(res['message'] ?? '');
+  const roomId = res['room_id'] ? String(res['room_id']) : undefined;
+
+  if (!ok) {
+    if (message === 'SALA_LLENA') {
+      throw new Error('La sala está llena. Intenta con otra sala.');
+    }
+    if (message === 'SALA_NO_DISPONIBLE') {
+      throw new Error('La sala ya comenzó o finalizó.');
+    }
+    throw new Error('No se encontró ninguna sala disponible con ese código.');
   }
-
-  const { data: existing } = await supabase
-    .from('room_participants')
-    .select('id')
-    .eq('room_id', roomId)
-    .eq('user_id', guestUser.id)
-    .maybeSingle();
-  if (!existing) {
-    const { error: jError } = await supabase
-      .from('room_participants')
-      .insert({ room_id: roomId, user_id: guestUser.id, puntaje: 0 });
-    if (jError) throw new Error('Esta sala ya está ocupada o en curso.');
-  }
-
-  await supabase.from('rooms').update({ estado: 'en_curso' }).eq('id', roomId);
+  if (!roomId) throw new Error('No se pudo unir a la sala.');
   return buildMatchRoom(roomId);
+}
+
+export async function startMatch(matchId: string, userId: string): Promise<MatchRoom> {
+  const { error } = await supabase.rpc('start_room', { p_room_id: matchId, p_user_id: userId });
+  if (error) {
+    const raw = (error as { message?: string })?.message ?? '';
+    if (raw.includes('MINIMO_2_JUGADORES')) throw new Error('Se necesitan al menos 2 jugadores para iniciar.');
+    if (raw.includes('SOLO_HOST')) throw new Error('Solo el anfitrión puede iniciar la partida.');
+    throw new Error('No se pudo iniciar la partida.');
+  }
+  return buildMatchRoom(matchId);
 }
 
 export function subscribeToMatch(
@@ -219,20 +227,15 @@ export function subscribeToMatch(
 
 export async function submitMatchAnswer(
   matchId: string,
-  isHost: boolean,
+  userId: string,
   chosenOptionOrIsCorrect: string | boolean,
   currentQuestionIndex: number,
-  totalQuestions: number,
-  _currentScore: number
+  totalQuestions: number
 ) {
   const room = await buildMatchRoom(matchId);
   const questionId = room.questionIds[currentQuestionIndex];
   if (!questionId) return;
 
-  const userId = isHost ? room.hostId : room.guestId;
-  if (!userId) return;
-
-  // Verificación autoritativa contra Supabase (no se confía en el cliente)
   let isCorrect = false;
   if (typeof chosenOptionOrIsCorrect === 'string') {
     const { data } = await supabase.from('questions').select('respuesta_correcta').eq('id', questionId).maybeSingle();
@@ -270,17 +273,15 @@ export async function submitMatchAnswer(
     }
   }
 
-  // Si ambos terminaron, cerrar la sala
   const updated = await buildMatchRoom(matchId);
-  const hostDone = updated.hostCurrentQuestion >= totalQuestions;
-  const guestDone = !updated.guestId || updated.guestCurrentQuestion >= totalQuestions;
-  if (hostDone && guestDone && updated.status !== 'completed') {
-    await supabase.from('rooms').update({ estado: 'finalizada' }).eq('id', matchId);
+  const allDone = updated.players.length > 0 && updated.players.every((p) => p.answeredCount >= totalQuestions);
+  if (allDone && updated.status !== 'completed') {
+    await supabase.rpc('finish_room', { p_room_id: matchId });
   }
 }
 
-export async function leaveMatch(matchId: string, _userId: string) {
-  await supabase.from('rooms').update({ estado: 'finalizada' }).eq('id', matchId);
+export async function leaveMatch(matchId: string, userId: string) {
+  await supabase.rpc('leave_room', { p_room_id: matchId, p_user_id: userId });
 }
 
 export async function cleanupStaleMatches() {
@@ -290,10 +291,6 @@ export async function cleanupStaleMatches() {
   } catch (error) {
     console.warn('cleanupStaleMatches:', error);
   }
-}
-
-export async function finishMatchEarly(matchId: string, _winnerId?: string) {
-  await supabase.from('rooms').update({ estado: 'finalizada' }).eq('id', matchId);
 }
 
 export async function recordUserMatchResult(_userId: string, _isWinner: boolean, _isDraw: boolean) {

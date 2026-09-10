@@ -415,7 +415,7 @@ export function Practice() {
         <div className={cn("min-w-0", showWhiteboard && "xl:col-span-2")}>
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         {/* Question Statement */}
-        <div className="p-6 md:p-8 border-b border-gray-100 dark:border-gray-700">
+        <div className="p-4 sm:p-6 md:p-8 border-b border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
             <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-bold uppercase tracking-wider">
               {currentQuestion.topic}
@@ -436,7 +436,7 @@ export function Practice() {
             questionNumber={currentQuestion.number}
           />
           
-          <h3 className="text-xl text-gray-900 dark:text-white leading-relaxed mb-6 font-medium">
+          <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white leading-relaxed mb-6 font-medium break-words">
             <MathRenderer text={currentQuestion.statement} />
           </h3>
 
@@ -519,7 +519,7 @@ export function Practice() {
         </div>
 
         {/* Actions Area */}
-        <div className="p-6 md:p-8 bg-gray-50 dark:bg-gray-900/50">
+        <div className="p-4 sm:p-6 md:p-8 bg-gray-50 dark:bg-gray-900/50">
           {!isResolved ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col sm:flex-row gap-3 justify-between items-center">
@@ -582,7 +582,7 @@ export function Practice() {
 
       {/* Explanation Box */}
       {showExplanation && (
-        <div className="mt-6 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-l-4 border-l-blue-500 p-6 md:p-8 animate-in slide-in-from-top-4 duration-300">
+        <div className="mt-6 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-l-4 border-l-blue-500 p-4 sm:p-6 md:p-8 animate-in slide-in-from-top-4 duration-300">
           <h4 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
             <Brain className="w-5 h-5 text-blue-500" />
             Explicación Pedagógica

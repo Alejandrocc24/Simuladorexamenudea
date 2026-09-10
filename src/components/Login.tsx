@@ -104,7 +104,7 @@ export function Login() {
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 space-y-6">
+      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 sm:p-8 space-y-5 sm:space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-black text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">

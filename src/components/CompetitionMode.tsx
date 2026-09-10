@@ -6,6 +6,7 @@ import { Question } from '../types';
 import { 
   createMatchRoom, 
   joinMatchByCode, 
+  startMatch,
   subscribeToMatch, 
   submitMatchAnswer, 
   subscribeToLeaderboard, 
@@ -47,7 +48,6 @@ export function CompetitionMode() {
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Active match state
   const [activeMatch, setActiveMatch] = useState<MatchRoom | null>(null);
   const activeMatchRef = useRef<MatchRoom | null>(null);
   useEffect(() => {
@@ -59,7 +59,6 @@ export function CompetitionMode() {
   const [matchProcessed, setMatchProcessed] = useState(false);
   const processedMatchesRef = useRef<Set<string>>(new Set());
 
-  // In-app Confirm Modal State (Never use window.confirm)
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -73,10 +72,8 @@ export function CompetitionMode() {
     onConfirm: () => {}
   });
 
-  // Real-time Leaderboard
   const [leaderboard, setLeaderboard] = useState<PublicLeaderboardUser[]>([]);
 
-  // Collect all questions pool
   const allAvailableQuestions = useMemo(() => {
     return exams.flatMap(e => 
       e.sections
@@ -85,12 +82,10 @@ export function CompetitionMode() {
     );
   }, [exams, selectedSection]);
 
-  // Clean stale matches on mount
   useEffect(() => {
     cleanupStaleMatches();
   }, []);
 
-  // Subscribe to Leaderboard
   useEffect(() => {
     const unsub = subscribeToLeaderboard((players) => {
       setLeaderboard(players);
@@ -98,14 +93,12 @@ export function CompetitionMode() {
     return () => unsub();
   }, []);
 
-  // Subscribe to active match in real-time
   useEffect(() => {
     if (!activeMatch?.id) return;
 
     const unsub = subscribeToMatch(activeMatch.id, (updatedMatch) => {
       setActiveMatch(updatedMatch);
 
-      // Handle match completion rating update atomically without duplicates
       if (updatedMatch.status === 'completed' && user && !processedMatchesRef.current.has(updatedMatch.id)) {
         processedMatchesRef.current.add(updatedMatch.id);
         setMatchProcessed(true);
@@ -120,15 +113,14 @@ export function CompetitionMode() {
     return () => unsub();
   }, [activeMatch?.id, user]);
 
-  // Current question data inside an active match
   const currentQuestionData: Question | null = useMemo(() => {
     if (!activeMatch) return null;
-    const isHost = user?.id === activeMatch.hostId;
-    const currentIndex = isHost ? activeMatch.hostCurrentQuestion : activeMatch.guestCurrentQuestion;
+    const me = activeMatch.players.find(p => p.userId === user?.id);
+    if (!me) return null;
+    const currentIndex = me.answeredCount;
     const targetId = activeMatch.questionIds[currentIndex];
     if (!targetId) return null;
 
-    // Search in exams
     for (const ex of exams) {
       for (const sec of ex.sections) {
         const found = sec.questions.find(q => q.id === targetId);
@@ -138,17 +130,14 @@ export function CompetitionMode() {
     return null;
   }, [activeMatch, user, exams]);
 
-  // Create Room Handler
   const handleCreateRoom = async () => {
     if (!profile) return;
     setIsActionLoading(true);
     setErrorMessage(null);
 
     try {
-      // Pick random questions from pool
       let pool = [...allAvailableQuestions];
       if (pool.length === 0) {
-        // Fallback: any question in exams
         pool = exams.flatMap(e => e.sections.flatMap(s => s.questions));
       }
 
@@ -158,12 +147,10 @@ export function CompetitionMode() {
         return;
       }
 
-      // Shuffle and take count
       const shuffled = [...pool].sort(() => 0.5 - Math.random());
       const selectedQuestions = shuffled.slice(0, Math.min(questionCount, shuffled.length));
       const qIds = selectedQuestions.map(q => q.id);
 
-      // Build authoritative answers map for anti-cheat verification
       const answersKey: Record<string, string> = {};
       selectedQuestions.forEach(q => {
         if (q.correctAnswer) {
@@ -181,7 +168,6 @@ export function CompetitionMode() {
     }
   };
 
-  // Join Room Handler
   const handleJoinRoom = async () => {
     if (!profile || !joinCode.trim()) return;
     setIsActionLoading(true);
@@ -198,29 +184,39 @@ export function CompetitionMode() {
     }
   };
 
-  // Submit Answer in Battle
+  const handleStartMatch = async () => {
+    if (!activeMatch || !user) return;
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const room = await startMatch(activeMatch.id, user.id);
+      setActiveMatch(room);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'No se pudo iniciar la partida');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   const handleSelectOption = async (optionId: string) => {
     const match = activeMatchRef.current;
     if (hasAnsweredCurrent || !match || !currentQuestionData || !user) return;
     setSelectedAnswer(optionId);
     setHasAnsweredCurrent(true);
 
-    const isHost = user.id === match.hostId;
-    const currentIndex = isHost ? match.hostCurrentQuestion : match.guestCurrentQuestion;
-    const currentScore = isHost ? match.hostScore : match.guestScore;
+    const me = match.players.find(p => p.userId === user.id);
+    const currentIndex = me?.answeredCount ?? 0;
 
-    // Small delay for answer feedback visual
     setTimeout(async () => {
       try {
         const freshMatch = activeMatchRef.current;
         if (!freshMatch) return;
         await submitMatchAnswer(
           freshMatch.id,
-          isHost,
+          user.id,
           optionId,
           currentIndex,
-          freshMatch.totalQuestions,
-          currentScore
+          freshMatch.totalQuestions
         );
       } catch (err) {
         console.error('Error al registrar respuesta en la sala:', err);
@@ -238,7 +234,20 @@ export function CompetitionMode() {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // 1. Not Logged In View
+  const sortedPlayers = useMemo(() => {
+    if (!activeMatch) return [];
+    return [...activeMatch.players].sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.answeredCount !== a.answeredCount) return b.answeredCount - a.answeredCount;
+      return a.userId.localeCompare(b.userId);
+    });
+  }, [activeMatch]);
+
+  const me = useMemo(() => {
+    if (!activeMatch) return undefined;
+    return activeMatch.players.find(p => p.userId === user?.id);
+  }, [activeMatch, user]);
+
   if (!user && !authLoading) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4">
@@ -247,11 +256,11 @@ export function CompetitionMode() {
             <Swords className="w-8 h-8" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-3">
-            Modo Competir: Duelos 1 vs 1 UdeA
+            Modo Competir: Sala de Competencia UdeA
           </h2>
           <p className="text-gray-600 dark:text-gray-400 max-w-xl mx-auto mb-8 text-base leading-relaxed">
-            Inicia sesión con tu cuenta para retar a otros aspirantes en tiempo real,
-            ganar puntos de Rating ELO y subir a la tabla oficial de clasificados.
+            Inicia sesión con tu cuenta para retar a otros aspirantes en tiempo real
+            (hasta 15 jugadores por sala), ganar puntos y subir a la tabla oficial de clasificados.
           </p>
           <Link
             to="/login"
@@ -265,19 +274,18 @@ export function CompetitionMode() {
     );
   }
 
-  // 2. Active Match View: Waiting for opponent
   if (activeMatch && activeMatch.status === 'waiting') {
     return (
       <div className="max-w-xl mx-auto py-12 px-4">
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-full mb-6 animate-pulse">
             <Clock className="w-3.5 h-3.5" />
-            Esperando al rival...
+            Esperando jugadores...
           </div>
 
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Código de tu Sala</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-            Comparte este código con tu compañero o amigo para que ingrese desde su cuenta:
+            Comparte este código para que otros aspirantes se unan (hasta {activeMatch.maxParticipants} jugadores):
           </p>
 
           <div className="flex items-center justify-center gap-3 mb-8">
@@ -293,21 +301,61 @@ export function CompetitionMode() {
             </button>
           </div>
 
-          <div className="flex items-center justify-center gap-4 py-4 border-t border-gray-100 dark:border-gray-700 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold">
-                {profile?.displayName?.charAt(0) || 'U'}
-              </div>
-              <div className="text-left">
-                <p className="font-bold text-sm text-gray-900 dark:text-white">{profile?.displayName}</p>
-                <p className="text-xs text-gray-500">Anfitrión (Rating {profile?.rating})</p>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-gray-400">VS</span>
-            <div className="text-left text-gray-400 italic text-sm">
-              Esperando rival...
+          <div className="mb-6">
+            <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+              Jugadores ({activeMatch.players.length} / {activeMatch.maxParticipants})
+            </p>
+            <div className="space-y-2 max-h-56 overflow-y-auto">
+              {activeMatch.players.map((p) => (
+                <div
+                  key={p.userId}
+                  className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 dark:bg-gray-900 rounded-xl"
+                >
+                  <div className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm text-white flex-shrink-0",
+                    p.isHost ? "bg-emerald-500" : "bg-indigo-500"
+                  )}>
+                    {p.displayName?.charAt(0) || 'U'}
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white flex-1 text-left truncate">
+                    {p.displayName}
+                  </span>
+                  {p.userId === user?.id && (
+                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 px-2 py-0.5 rounded-full">
+                      Tú
+                    </span>
+                  )}
+                  {p.isHost && (
+                    <span className="text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full">
+                      Anfitrión
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
+
+          {me?.isHost ? (
+            <div className="space-y-2">
+              <button
+                onClick={handleStartMatch}
+                disabled={isActionLoading || activeMatch.players.length < 2}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+              >
+                <Swords className="w-4 h-4" />
+                {isActionLoading ? 'Iniciando...' : 'Iniciar Duelo'}
+              </button>
+              {activeMatch.players.length < 2 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Necesitas al menos 2 jugadores para iniciar.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Esperando a que el anfitrión inicie el duelo...
+            </p>
+          )}
 
           <button
             onClick={() => {
@@ -316,40 +364,37 @@ export function CompetitionMode() {
               }
               setActiveMatch(null);
             }}
-            className="text-sm text-gray-500 hover:text-red-500 transition-colors"
+            className="mt-6 text-sm text-gray-500 hover:text-red-500 transition-colors"
           >
-            Cancelar y salir de la sala
+            Salir de la sala
           </button>
         </div>
       </div>
     );
   }
 
-  // 3. Active Battle Arena (In Progress or Completed)
   if (activeMatch && (activeMatch.status === 'in_progress' || activeMatch.status === 'completed')) {
-    const isHost = user?.id === activeMatch.hostId;
-    const myScore = isHost ? activeMatch.hostScore : activeMatch.guestScore;
-    const rivalScore = isHost ? activeMatch.guestScore : activeMatch.hostScore;
-    const myName = isHost ? activeMatch.hostName : activeMatch.guestName;
-    const rivalName = isHost ? activeMatch.guestName : activeMatch.hostName;
-    const myCurrentQ = isHost ? activeMatch.hostCurrentQuestion : activeMatch.guestCurrentQuestion;
-    const rivalCurrentQ = isHost ? activeMatch.guestCurrentQuestion : activeMatch.hostCurrentQuestion;
-
+    const myScore = me?.score ?? 0;
+    const myCurrentQ = me?.answeredCount ?? 0;
     const isFinishedForMe = myCurrentQ >= activeMatch.totalQuestions;
+    const topScore = sortedPlayers[0]?.score;
+    const topPlayers = sortedPlayers.filter(p => p.score === topScore);
+    const iAmTop = me && topPlayers.some(p => p.userId === me.userId);
+    const isDraw = topPlayers.length > 1 && iAmTop;
+    const myRank = sortedPlayers.findIndex(p => p.userId === user?.id);
+    const isCancelled = activeMatch.winnerId === 'cancelled';
 
     return (
       <div className="max-w-4xl mx-auto py-6 px-4 space-y-6">
-        {/* Battle Live Header */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between gap-4 mb-4">
-            {/* Player Left (Me) */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-1">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                {myName?.charAt(0)}
+                {me?.displayName?.charAt(0) || 'U'}
               </div>
               <div>
                 <p className="font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
-                  {myName} <span className="text-xs font-normal text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">Tú</span>
+                  {me?.displayName || 'Tú'} <span className="text-xs font-normal text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">Tú</span>
                 </p>
                 <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{myScore} <span className="text-xs font-medium text-gray-400">pts</span></p>
               </div>
@@ -359,19 +404,20 @@ export function CompetitionMode() {
               <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-full">
                 <Swords className="w-6 h-6 animate-pulse" />
               </div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 mt-1">DUELO UdeA</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 mt-1">COMPETENCIA UdeA</span>
               {activeMatch.status === 'in_progress' && (
                 <button
                   onClick={() => {
                     setConfirmModal({
                       isOpen: true,
                       title: '¿Abandonar partida?',
-                      message: 'Si abandonas el duelo ahora, se considerará derrota y tu rival ganará los puntos.',
+                      message: 'Si abandonas ahora, saldrás de la sala y los demás podrán continuar.',
                       confirmLabel: 'Abandonar',
                       onConfirm: async () => {
                         setConfirmModal(prev => ({ ...prev, isOpen: false }));
                         if (user && activeMatch) {
                           await leaveMatch(activeMatch.id, user.id);
+                          setActiveMatch(null);
                         }
                       }
                     });
@@ -383,78 +429,109 @@ export function CompetitionMode() {
               )}
             </div>
 
-            {/* Player Right (Rival) */}
-            <div className="flex items-center gap-3 text-right">
-              <div>
-                <p className="font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-1.5 justify-end">
-                  <span className="text-xs font-normal text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full">Rival</span> {rivalName || 'Oponente'}
-                </p>
-                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{rivalScore} <span className="text-xs font-medium text-gray-400">pts</span></p>
-              </div>
-              <div className="w-12 h-12 rounded-2xl bg-indigo-500 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                {rivalName?.charAt(0) || 'R'}
-              </div>
+            <div className="flex items-center gap-3 flex-1 justify-end">
+              {sortedPlayers.slice(1, 3).map(p => (
+                <div key={p.userId} className="text-right">
+                  <p className="font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-1.5 justify-end">
+                    <span className="text-xs font-normal text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full">
+                      {p.isHost ? 'Anfitrión' : 'Rival'}
+                    </span> {p.displayName}
+                  </p>
+                  <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{p.score} <span className="text-xs font-medium text-gray-400">pts</span></p>
+                </div>
+              ))}
+              {sortedPlayers.length > 3 && (
+                <div className="w-12 h-12 rounded-2xl bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex items-center justify-center font-bold text-sm">
+                  +{sortedPlayers.length - 3}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Progress Indicators */}
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 dark:border-gray-700 text-xs">
-            <div>
-              <div className="flex justify-between font-semibold mb-1 text-gray-600 dark:text-gray-400">
-                <span>Tu progreso</span>
-                <span>{Math.min(myCurrentQ, activeMatch.totalQuestions)} / {activeMatch.totalQuestions}</span>
-              </div>
-              <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-emerald-500 transition-all duration-300"
-                  style={{ width: `${(Math.min(myCurrentQ, activeMatch.totalQuestions) / activeMatch.totalQuestions) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between font-semibold mb-1 text-gray-600 dark:text-gray-400">
-                <span>Progreso del rival</span>
-                <span>{Math.min(rivalCurrentQ, activeMatch.totalQuestions)} / {activeMatch.totalQuestions}</span>
-              </div>
-              <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-indigo-500 transition-all duration-300"
-                  style={{ width: `${(Math.min(rivalCurrentQ, activeMatch.totalQuestions) / activeMatch.totalQuestions) * 100}%` }}
-                />
-              </div>
-            </div>
+          <div className="pt-4 border-t border-gray-100 dark:border-gray-700 space-y-2">
+            {sortedPlayers.map((p) => {
+              const progress = Math.min(p.answeredCount, activeMatch.totalQuestions);
+              return (
+                <div key={p.userId} className="flex items-center gap-3">
+                  <span className={cn(
+                    "text-[11px] font-black w-5 text-center",
+                    p.userId === user?.id ? "text-emerald-600" : "text-gray-400"
+                  )}>
+                    {sortedPlayers.indexOf(p) + 1}°
+                  </span>
+                  <span className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
+                    p.userId === user?.id ? "bg-emerald-500" : p.isHost ? "bg-amber-500" : "bg-indigo-500"
+                  )}>
+                    {p.displayName?.charAt(0) || 'U'}
+                  </span>
+                  <span className={cn(
+                    "text-xs font-semibold truncate max-w-[120px]",
+                    p.userId === user?.id ? "text-emerald-700 dark:text-emerald-300" : "text-gray-700 dark:text-gray-300"
+                  )}>
+                    {p.displayName}{p.userId === user?.id ? ' (Tú)' : ''}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="w-full h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-300",
+                          p.userId === user?.id ? "bg-emerald-500" : "bg-indigo-400"
+                        )}
+                        style={{ width: `${(progress / activeMatch.totalQuestions) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-semibold text-gray-400 w-12 text-right">
+                    {progress}/{activeMatch.totalQuestions}
+                  </span>
+                  <span className={cn(
+                    "text-xs font-black min-w-[52px] text-right",
+                    p.userId === user?.id ? "text-emerald-600 dark:text-emerald-400" : "text-gray-600 dark:text-gray-400"
+                  )}>
+                    {p.score} pts
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Question Area or Finished Waiting Screen */}
         {isFinishedForMe && activeMatch.status !== 'completed' ? (
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-12 text-center shadow-sm border border-gray-100 dark:border-gray-700">
             <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-bounce">
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">¡Has terminado tus preguntas!</h3>
-            <p className="text-gray-500 text-sm max-w-sm mx-auto mb-6">
-              Esperando a que tu rival termine de responder para calcular el resultado final y actualizar el rating.
+            <p className="text-gray-500 text-sm max-w-sm mx-auto">
+              Esperando a que los demás jugadores terminen para calcular los resultados finales.
             </p>
           </div>
         ) : activeMatch.status === 'completed' ? (
           <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 md:p-12 text-center shadow-sm border border-gray-100 dark:border-gray-700">
-            {activeMatch.winnerId === user?.id ? (
+            {isCancelled ? (
               <div>
-                <div className="w-20 h-20 bg-amber-50 dark:bg-amber-950/40 text-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-4 animate-pulse">
-                  <Crown className="w-10 h-10" />
+                <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700 text-gray-400 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-10 h-10" />
                 </div>
-                <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">¡VICTORIA! 🏆</h3>
-                <p className="text-emerald-600 dark:text-emerald-400 font-bold text-lg mb-6">+25 Puntos de Rating ELO</p>
+                <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">Sala Cancelada</h3>
+                <p className="text-gray-500 font-semibold text-lg mb-6">No se completó el duelo.</p>
               </div>
-            ) : activeMatch.winnerId === 'draw' ? (
+            ) : iAmTop && isDraw ? (
               <div>
                 <div className="w-20 h-20 bg-blue-50 dark:bg-blue-950/40 text-blue-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                   <Sparkles className="w-10 h-10" />
                 </div>
-                <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">¡EMPATE TÉCNICO!</h3>
-                <p className="text-blue-600 font-bold text-lg mb-6">+5 Puntos de Rating ELO</p>
+                <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">¡EMPATE!</h3>
+                <p className="text-blue-600 font-bold text-lg mb-6">Quedaste entre los primeros en empate.</p>
+              </div>
+            ) : iAmTop ? (
+              <div>
+                <div className="w-20 h-20 bg-amber-50 dark:bg-amber-950/40 text-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+                  <Crown className="w-10 h-10" />
+                </div>
+                <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">¡VICTORIA!</h3>
+                <p className="text-emerald-600 dark:text-emerald-400 font-bold text-lg mb-6">¡Ganaste el duelo!</p>
               </div>
             ) : (
               <div>
@@ -462,19 +539,40 @@ export function CompetitionMode() {
                   <XCircle className="w-10 h-10" />
                 </div>
                 <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">DERROTA</h3>
-                <p className="text-red-500 font-bold text-lg mb-6">-15 Puntos de Rating ELO</p>
+                <p className="text-red-500 font-bold text-lg mb-6">
+                  {myRank >= 0 ? `Puesto #${myRank + 1} de ${sortedPlayers.length}` : 'No se pudo determinar tu posición'}
+                </p>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl mb-8 text-sm">
-              <div>
-                <p className="text-gray-400 text-xs">Puntaje Final</p>
-                <p className="font-extrabold text-lg text-emerald-600">{myScore} pts</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-xs">Puntaje Rival</p>
-                <p className="font-extrabold text-lg text-indigo-600">{rivalScore} pts</p>
-              </div>
+            <div className="space-y-2 max-w-sm mx-auto mb-8">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Clasificación Final</p>
+              {sortedPlayers.map((p, idx) => (
+                <div
+                  key={p.userId}
+                  className={cn(
+                    "flex items-center gap-3 p-3 rounded-xl text-sm",
+                    p.userId === user?.id
+                      ? "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800"
+                      : "bg-gray-50 dark:bg-gray-900"
+                  )}
+                >
+                  <span className={cn(
+                    "w-6 h-6 rounded-full font-black text-xs flex items-center justify-center flex-shrink-0",
+                    idx === 0 ? "bg-amber-400 text-amber-950" : idx === 1 ? "bg-gray-300 text-gray-800" : idx === 2 ? "bg-amber-700 text-amber-100" : "bg-gray-100 dark:bg-gray-800 text-gray-500"
+                  )}>
+                    {idx + 1}
+                  </span>
+                  <span className="flex-1 text-left font-semibold text-gray-900 dark:text-white truncate">
+                    {p.displayName}
+                    {p.userId === user?.id && <span className="text-xs text-emerald-600 ml-1">(Tú)</span>}
+                  </span>
+                  {idx === 0 && activeMatch.winnerId === p.userId && (
+                    <Crown className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  )}
+                  <span className="font-black text-gray-900 dark:text-white">{p.score} pts</span>
+                </div>
+              ))}
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -492,7 +590,7 @@ export function CompetitionMode() {
                 onClick={() => setActiveMatch(null)}
                 className="w-full sm:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all"
               >
-                Volver al Lobby de Competencia
+                Volver al Lobby
               </button>
             </div>
           </div>
@@ -507,12 +605,10 @@ export function CompetitionMode() {
               </span>
             </div>
 
-            {/* Statement */}
             <div className="text-base md:text-lg text-gray-800 dark:text-gray-200 leading-relaxed font-medium">
               <MathRenderer text={currentQuestionData.statement} />
             </div>
 
-            {/* Figures / Assets */}
             {currentQuestionData.assets && currentQuestionData.assets.length > 0 && (
               <div className="flex flex-wrap gap-4 justify-center my-4">
                 {currentQuestionData.assets.map((asset, idx) => (
@@ -528,7 +624,6 @@ export function CompetitionMode() {
               </div>
             )}
 
-            {/* Options */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
               {currentQuestionData.options.map((opt) => {
                 const isSelected = selectedAnswer === opt.id;
@@ -571,7 +666,6 @@ export function CompetitionMode() {
             Cargando pregunta...
           </div>
         )}
-        {/* In-app confirmation modal for battle */}
         <ConfirmModal
           isOpen={confirmModal.isOpen}
           title={confirmModal.title}
@@ -584,10 +678,8 @@ export function CompetitionMode() {
     );
   }
 
-  // 4. Main Lobby View (Arena or Ranking)
   return (
     <div className="max-w-5xl mx-auto py-6 px-4 space-y-8">
-      {/* User Stats Card Banner */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-3xl p-6 md:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center font-black text-2xl">
@@ -622,7 +714,6 @@ export function CompetitionMode() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setActiveTab('arena')}
@@ -634,7 +725,7 @@ export function CompetitionMode() {
           )}
         >
           <Swords className="w-4 h-4" />
-          Sala de Duelos 1 vs 1
+          Sala de Competencia
         </button>
         <button
           onClick={() => setActiveTab('ranking')}
@@ -646,7 +737,7 @@ export function CompetitionMode() {
           )}
         >
           <Trophy className="w-4 h-4" />
-          Tabla de Clasificación (Ranking)
+          Tabla de Clasificación
         </button>
       </div>
 
@@ -657,21 +748,18 @@ export function CompetitionMode() {
         </div>
       )}
 
-      {/* Arena Content */}
       {activeTab === 'arena' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Create Room Card */}
           <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col justify-between">
             <div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-4 font-bold">
                 <Zap className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Crear Nueva Sala de Duelo</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Crear Nueva Sala</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-6">
-                Genera un código privado para que tu rival se una y compitan respondiendo las mismas preguntas en vivo.
+                Genera un código privado para que hasta 15 jugadores se unan y compitan respondiendo las mismas preguntas en vivo.
               </p>
 
-              {/* Section Filter */}
               <div className="space-y-4 mb-6">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2 uppercase">
@@ -719,11 +807,10 @@ export function CompetitionMode() {
               className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 mt-4"
             >
               <Swords className="w-4 h-4" />
-              {isActionLoading ? 'Creando sala...' : 'Crear Sala y Esperar Rival'}
+              {isActionLoading ? 'Creando sala...' : 'Crear Sala'}
             </button>
           </div>
 
-          {/* Join Room Card */}
           <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col justify-between">
             <div>
               <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4 font-bold">
@@ -731,7 +818,7 @@ export function CompetitionMode() {
               </div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Unirse con Código</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-6">
-                Ingresa el código de 6 caracteres que te compartió el anfitrión para comenzar el duelo de inmediato.
+                Ingresa el código de 6 caracteres que te compartió un jugador para unirte a la sala.
               </p>
 
               <div>
@@ -755,12 +842,11 @@ export function CompetitionMode() {
               className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 mt-4"
             >
               <ArrowRight className="w-4 h-4" />
-              {isActionLoading ? 'Uniéndose...' : 'Unirse al Duelo Ahora'}
+              {isActionLoading ? 'Uniéndose...' : 'Unirse a la Sala'}
             </button>
           </div>
         </div>
       ) : (
-        /* Leaderboard Tab */
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -835,7 +921,6 @@ export function CompetitionMode() {
         </div>
       )}
 
-      {/* In-app confirmation modal for lobby actions */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}

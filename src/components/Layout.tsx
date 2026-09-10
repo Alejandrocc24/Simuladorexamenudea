@@ -91,9 +91,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Mobile Header (oculto con CSS en modo enfoque para no desmontar la vista) */}
-      <div className={cn("md:hidden items-center justify-between p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700", focusMode ? "hidden" : "flex")}>
-        <h1 className="text-xl font-bold text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
+      {/* Mobile Header fijo + menú desplegable superpuesto (no empuja el contenido).
+          En modo enfoque se oculta con CSS para no desmontar la vista activa. */}
+      <div className={cn("md:hidden sticky top-0 z-30", focusMode && "hidden")}>
+      <div className="flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <h1 className="text-lg font-bold text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
         <div className="flex items-center gap-2">
           {user ? (
             <div className="w-8 h-8 rounded-full bg-[#005F2B] text-white flex items-center justify-center font-bold text-xs">
@@ -108,9 +110,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               Entrar
             </Link>
           )}
-          <button 
+          <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-gray-600 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label={isMobileMenuOpen ? "Cerrar menú" : "Abrir menú"}
+            aria-expanded={isMobileMenuOpen}
+            className="p-2.5 -mr-1 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-95 transition"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isMobileMenuOpen 
@@ -122,10 +126,88 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {/* Sidebar Navigation */}
+      {/* Menú móvil: panel superpuesto con fondo para cerrar al tocar fuera */}
+      {isMobileMenuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-black/40"
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-hidden
+          />
+          <div className="absolute top-full left-0 right-0 z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-xl max-h-[75vh] overflow-y-auto overscroll-contain">
+            <nav className="px-3 py-3 space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-3.5 rounded-xl text-[15px] font-medium transition-colors active:scale-[0.99]",
+                      isActive
+                        ? "bg-[#005F2B]/10 text-[#005F2B] dark:bg-[#005F2B]/30 dark:text-emerald-300 font-bold"
+                        : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                    )}
+                  >
+                    <Icon className="w-5 h-5 flex-shrink-0" />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="p-4 pt-1 space-y-2">
+              {user ? (
+                <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-100 dark:border-gray-700">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-[#005F2B] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                      {profile?.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                        {profile?.displayName || user.email}
+                      </p>
+                      <p className="text-[11px] font-semibold text-[#005F2B] dark:text-emerald-400">
+                        ⚡ {profile?.rating || 1000} ELO
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 rounded-lg"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Salir
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-[#005F2B] text-white rounded-xl text-sm font-bold"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Iniciar sesión / Crear cuenta
+                </Link>
+              )}
+              {!isInstalled && isInstallable && (
+                <button
+                  onClick={install}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-gray-600 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200"
+                >
+                  <Download className="w-4 h-4" />
+                  Instalar App
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+      </div>
+
+      {/* Sidebar Navigation (desktop) */}
       <aside className={cn(
-        "w-full md:w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-col",
-        focusMode ? "hidden" : ["md:flex", isMobileMenuOpen ? "flex" : "hidden"]
+        "w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-col shrink-0",
+        focusMode ? "hidden" : "hidden md:flex"
       )}>
         <div className="p-6 hidden md:block">
           <h1 className="text-2xl font-bold text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
@@ -232,7 +314,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-6 md:p-8 overflow-y-auto">
+      <main className="flex-1 min-w-0 min-h-0 p-4 md:p-8 pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto overflow-x-clip">
         <div className="w-full max-w-7xl mx-auto">
           {children}
         </div>

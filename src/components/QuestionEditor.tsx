@@ -125,11 +125,11 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 animate-in slide-in-from-right-4 flex flex-col">
       {/* Header Bar */}
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
-        <div>
-          <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-            <Edit3 className="w-5 h-5 text-emerald-600" />
-            Edición: Pregunta Q{question.number}
+      <div className="flex items-center justify-between gap-2 mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+            <Edit3 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+            <span className="truncate">Edición: Pregunta Q{question.number}</span>
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {question.sectionId === 'razonamiento-logico' ? 'Razonamiento Lógico' : 'Competencia Lectora'}
