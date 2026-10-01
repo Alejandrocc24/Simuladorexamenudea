@@ -9,7 +9,9 @@ import { Link } from 'react-router-dom';
 import { cn } from './Layout';
 import { MathRenderer } from './MathRenderer';
 import { SharedContextBox } from './SharedContextBox';
+import { MainQuestionAssets, OptionsAssetsBlock, hasSharedContext, sharedAssetsOf } from './QuestionAssets';
 import { Whiteboard } from './Whiteboard';
+import { buildCategoryTree, filterByCategoryTopic } from '../lib/taxonomy';
 
 export type PracticeComponent = 'razonamiento-logico' | 'competencia-lectora';
 
@@ -35,6 +37,8 @@ export function Practice() {
 
   // Se practica por componente (RL / CL): las preguntas se reúnen de TODOS los exámenes importados.
   const [selectedComponent, setSelectedComponent] = useState<PracticeComponent | ''>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedTopic, setSelectedTopic] = useState<string>('all');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
   // Pizarra lateral para explicar en grupo: oculta el sidebar y divide la pantalla
@@ -58,6 +62,8 @@ export function Practice() {
     setShowWhiteboard(false);
     setFocusMode(false);
     setSelectedComponent('');
+    setSelectedCategory('all');
+    setSelectedTopic('all');
     setIsFinished(false);
   };
 
@@ -95,9 +101,27 @@ export function Practice() {
     return map;
   }, [exams]);
 
-  const questions = selectedComponent ? publishedByComponent[selectedComponent] : [];
+  const questions = selectedComponent
+    ? filterByCategoryTopic(publishedByComponent[selectedComponent], selectedCategory, selectedTopic)
+    : [];
   const currentQuestion: Question | undefined = questions[currentQuestionIndex];
   const componentInfo = COMPONENTS.find((c) => c.id === selectedComponent);
+
+  // Árbol Área → Categoría → Tema con conteos (misma estructura que usará "Aprende").
+  const categoryTree = useMemo(
+    () => (selectedComponent ? buildCategoryTree(publishedByComponent[selectedComponent]) : []),
+    [publishedByComponent, selectedComponent]
+  );
+  const topicOptions = useMemo(() => {
+    if (selectedCategory === 'all') return [];
+    return categoryTree.find((c) => c.category === selectedCategory)?.topics ?? [];
+  }, [categoryTree, selectedCategory]);
+
+  const pickComponent = (c: PracticeComponent) => {
+    setSelectedComponent(c);
+    setSelectedCategory('all');
+    setSelectedTopic('all');
+  };
 
   // El texto de lectura compartida vive en el examen de origen de cada pregunta
   const parentExam = currentQuestion
@@ -283,7 +307,7 @@ export function Practice() {
             return (
               <button
                 key={c.id}
-                onClick={() => setSelectedComponent(c.id)}
+                onClick={() => pickComponent(c.id)}
                 className={cn(
                   'text-left p-5 rounded-2xl border-2 transition-all',
                   isActive
@@ -314,6 +338,74 @@ export function Practice() {
             );
           })}
         </div>
+
+        {selectedComponent && categoryTree.length > 0 && (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Categoría {componentInfo ? `· ${componentInfo.name}` : ''}
+              </label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => {
+                  setSelectedCategory(e.target.value);
+                  setSelectedTopic('all');
+                }}
+                className="w-full text-xs p-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+              >
+                <option value="all">
+                  Todas las categorías ({publishedByComponent[selectedComponent].length})
+                </option>
+                {categoryTree.map((node) => (
+                  <option key={node.category} value={node.category}>
+                    {node.category} ({node.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Tema
+              </label>
+              <select
+                value={selectedTopic}
+                onChange={(e) => setSelectedTopic(e.target.value)}
+                disabled={selectedCategory === 'all'}
+                className="w-full text-xs p-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-semibold disabled:opacity-50"
+              >
+                <option value="all">
+                  {selectedCategory === 'all'
+                    ? 'Elige una categoría para filtrar por tema'
+                    : `Todos los temas (${topicOptions.reduce((a, t) => a + t.count, 0)})`}
+                </option>
+                {topicOptions.map((t) => (
+                  <option key={t.topic} value={t.topic}>
+                    {t.topic} ({t.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {selectedComponent && selectedCategory !== 'all' && (
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            Filtro: <strong className="text-gray-800 dark:text-gray-200">{selectedCategory}</strong>
+            {selectedTopic !== 'all' && (
+              <> → <strong className="text-gray-800 dark:text-gray-200">{selectedTopic}</strong></>
+            )}{' '}
+            · {questions.length} pregunta{questions.length === 1 ? '' : 's'} seleccionada{questions.length === 1 ? '' : 's'}.
+            <button
+              onClick={() => {
+                setSelectedCategory('all');
+                setSelectedTopic('all');
+              }}
+              className="ml-2 text-emerald-600 dark:text-emerald-400 font-bold hover:underline"
+            >
+              Limpiar filtro
+            </button>
+          </p>
+        )}
 
         {selectedComponent && questions.length === 0 && (
           <p className="mt-4 text-sm text-amber-600 dark:text-amber-400 font-medium">
@@ -416,7 +508,12 @@ export function Practice() {
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         {/* Question Statement */}
         <div className="p-4 sm:p-6 md:p-8 border-b border-gray-100 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {currentQuestion.category && (
+              <span className="inline-block px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/60 rounded-full text-xs font-bold">
+                {currentQuestion.category}
+              </span>
+            )}
             <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-bold uppercase tracking-wider">
               {currentQuestion.topic}
             </span>
@@ -434,39 +531,21 @@ export function Practice() {
           <SharedContextBox
             sharedTexts={parentExam?.sharedTexts}
             questionNumber={currentQuestion.number}
+            sharedImages={sharedAssetsOf(currentQuestion.assets)}
           />
           
           <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white leading-relaxed mb-6 font-medium break-words">
             <MathRenderer text={currentQuestion.statement} />
           </h3>
 
-          {/* Render Assets (Images, Math, Tables) */}
-          {currentQuestion.assets && currentQuestion.assets.length > 0 && (
-            <div className="my-6 space-y-4">
-              {currentQuestion.assets.map((asset, idx) => {
-                const imgSrc = asset.imagePath || asset.croppedImage || asset.content || asset.base64;
-                if (asset.type === 'image' && !imgSrc) return null;
+          {/* Figuras del enunciado/tabla (orden del JSON; sin el bloque de opciones ni el contexto ya mostrado) */}
+          <MainQuestionAssets
+            assets={currentQuestion.assets}
+            sharedShown={hasSharedContext(parentExam?.sharedTexts, currentQuestion.number)}
+          />
 
-                return (
-                  <div key={asset.id || idx} className="flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800">
-                    {asset.type === 'image' && imgSrc && (
-                      <img 
-                        src={imgSrc} 
-                        alt={asset.description || "Imagen de la pregunta"} 
-                        className="max-w-full max-h-96 object-contain rounded-lg shadow-sm" 
-                      />
-                    )}
-                    {asset.type === 'math' && (
-                      <div className="text-lg overflow-x-auto w-full flex justify-center py-4 flex-col items-center gap-4">
-                        {asset.imagePath && <img src={asset.imagePath} alt="Formula original" className="max-w-full h-auto opacity-75 rounded" />}
-                        {asset.content && <BlockMath math={asset.content} />}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {/* Bloque de opciones en figura, separado justo encima de los botones */}
+          <OptionsAssetsBlock assets={currentQuestion.assets} />
 
           {/* Options */}
           <div className="space-y-3 mt-8">

@@ -8,7 +8,7 @@ import {
   fetchUserPracticeSessions,
   fetchUserMockSessions,
 } from '../services/sessionService';
-import { supabase } from '../lib/supabase';
+import { supabase, formatDbError } from '../lib/supabase';
 import { supabaseToExams } from '../lib/examAdapter';
 
 interface AppState {
@@ -81,17 +81,46 @@ export const useStore = create<AppState>()((set, get) => ({
   fetchExams: async () => {
     set({ isLoadingExams: true });
     try {
-      const { data: examRows, error: examError } = await supabase
+      // Con la migración v3 aplicada, shared_texts viene en la consulta principal.
+      // Si la columna aún no existe, se reintenta con el esquema anterior.
+      let examRows: unknown[] | null = null;
+      const examsFull = await supabase
         .from('exams')
-        .select('id,nombre,periodo,tipo,created_at')
+        .select('id,nombre,periodo,tipo,shared_texts,created_at')
         .order('created_at', { ascending: false });
-      if (examError) throw examError;
+      if (examsFull.error) {
+        if (/shared_texts|column|columna/i.test(examsFull.error.message)) {
+          const retry = await supabase
+            .from('exams')
+            .select('id,nombre,periodo,tipo,created_at')
+            .order('created_at', { ascending: false });
+          if (retry.error) throw retry.error;
+          examRows = retry.data as unknown[];
+        } else {
+          throw examsFull.error;
+        }
+      } else {
+        examRows = examsFull.data as unknown[];
+      }
 
-      const { data: questionRows, error: qError } = await supabase
-        .from('questions')
-        .select('id,exam_id,numero_original,area,tema,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at')
-        .order('numero_original', { ascending: true });
-      if (qError) throw qError;
+      // Intento con columnas v3; si aún no existen, reintento con el esquema anterior.
+      let questionRows: unknown[] | null = null;
+      const fullSelect =
+        'id,exam_id,numero_original,area,tema,category,confidence,difficulty,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at';
+      const legacySelect =
+        'id,exam_id,numero_original,area,tema,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at';
+      const first = await supabase.from('questions').select(fullSelect).order('numero_original', { ascending: true });
+      if (first.error) {
+        if (/category|confidence|difficulty|column|columna/i.test(first.error.message)) {
+          const retry = await supabase.from('questions').select(legacySelect).order('numero_original', { ascending: true });
+          if (retry.error) throw retry.error;
+          questionRows = retry.data as unknown[];
+        } else {
+          throw first.error;
+        }
+      } else {
+        questionRows = first.data as unknown[];
+      }
 
       let examsList: Exam[] = [];
       if (examRows && examRows.length > 0) {
@@ -157,22 +186,39 @@ export const useStore = create<AppState>()((set, get) => ({
 
     try {
       const opciones = mergedQuestion.options.map((o) => ({ id: o.id, texto: o.text }));
+      // Se conserva target/description para el bloque de opciones y el contexto compartido.
       const imagenes = (mergedQuestion.assets ?? [])
-        .map((a) => a.imagePath ?? a.croppedImage ?? a.content ?? '')
-        .filter(Boolean);
-      const { error } = await supabase
-        .from('questions')
-        .update({
-          enunciado_md: mergedQuestion.statement,
-          opciones,
-          respuesta_correcta: mergedQuestion.correctAnswer,
-          tiene_respuesta_oficial: mergedQuestion.correctAnswer !== null,
-          explicacion_md: mergedQuestion.explanation ?? null,
-          tema: mergedQuestion.topic ?? null,
-          imagenes,
+        .map((a) => {
+          const url = a.imagePath ?? a.croppedImage ?? a.content ?? '';
+          if (!url) return null;
+          if (a.target || a.description) {
+            return { imagePath: url, croppedImage: url, target: a.target, description: a.description };
+          }
+          return url;
         })
-        .eq('id', questionId);
-      if (error) throw error;
+        .filter(Boolean);
+      const fullPayload: Record<string, unknown> = {
+        enunciado_md: mergedQuestion.statement,
+        opciones,
+        respuesta_correcta: mergedQuestion.correctAnswer,
+        tiene_respuesta_oficial: mergedQuestion.correctAnswer !== null,
+        explicacion_md: mergedQuestion.explanation ?? null,
+        tema: mergedQuestion.topic ?? null,
+        category: mergedQuestion.category ?? null,
+        confidence: mergedQuestion.confidence ?? null,
+        difficulty: mergedQuestion.difficulty ?? 'medium',
+        imagenes,
+      };
+      const { error } = await supabase.from('questions').update(fullPayload).eq('id', questionId);
+      if (error) {
+        if (/category|confidence|difficulty|column|columna/i.test(error.message)) {
+          const { category: _c, confidence: _cf, difficulty: _d, ...legacyPayload } = fullPayload;
+          const { error: legacyError } = await supabase.from('questions').update(legacyPayload).eq('id', questionId);
+          if (legacyError) throw legacyError;
+        } else {
+          throw error;
+        }
+      }
     } catch (err) {
       console.warn('[Supabase UPDATE] questions:', err);
       set({ exams: previousExams });
@@ -187,9 +233,37 @@ export const useStore = create<AppState>()((set, get) => ({
     }));
 
     try {
-      await supabase.from('questions').delete().eq('exam_id', examId);
+      // Orden de borrado por las FK (sin CASCADE bloquean con 409):
+      // respuestas de duelos → participantes → salas → preguntas → examen.
+      // rooms.exam_id y room_answers.question_id referencian al examen.
+      const { data: qIds, error: idsError } = await supabase
+        .from('questions')
+        .select('id')
+        .eq('exam_id', examId);
+      if (idsError) throw new Error(formatDbError(idsError));
+      const ids = ((qIds ?? []) as Array<{ id: string }>).map((r) => r.id).filter(Boolean);
+      if (ids.length > 0) {
+        const { error: childError } = await supabase.from('room_answers').delete().in('question_id', ids);
+        if (childError) throw new Error(`No se pudo eliminar (respuestas de duelos asociadas): ${formatDbError(childError)}`);
+      }
+      const { data: roomIds, error: roomsError } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('exam_id', examId);
+      if (roomsError) throw new Error(formatDbError(roomsError));
+      const rIds = ((roomIds ?? []) as Array<{ id: string }>).map((r) => r.id).filter(Boolean);
+      if (rIds.length > 0) {
+        const { error: ansError } = await supabase.from('room_answers').delete().in('room_id', rIds);
+        if (ansError) throw new Error(`No se pudo eliminar (respuestas de duelos asociadas): ${formatDbError(ansError)}`);
+        const { error: partError } = await supabase.from('room_participants').delete().in('room_id', rIds);
+        if (partError) throw new Error(`No se pudo eliminar (participantes de duelos asociados): ${formatDbError(partError)}`);
+        const { error: roomError } = await supabase.from('rooms').delete().in('id', rIds);
+        if (roomError) throw new Error(formatDbError(roomError));
+      }
+      const { error: qError } = await supabase.from('questions').delete().eq('exam_id', examId);
+      if (qError) throw new Error(formatDbError(qError));
       const { error } = await supabase.from('exams').delete().eq('id', examId);
-      if (error) throw error;
+      if (error) throw new Error(formatDbError(error));
     } catch (err) {
       console.warn('[Supabase DELETE] exams:', err);
       set({ exams: previousExams });
@@ -202,8 +276,18 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ exams: [] });
 
     try {
-      await supabase.from('questions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('exams').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      // Mismo orden que deleteExam, sin filtros por examen.
+      const ZERO = '00000000-0000-0000-0000-000000000000';
+      const { error: ansError } = await supabase.from('room_answers').delete().neq('room_id', ZERO);
+      if (ansError) throw new Error(`No se pudo vaciar (respuestas de duelos asociadas): ${formatDbError(ansError)}`);
+      const { error: partError } = await supabase.from('room_participants').delete().neq('room_id', ZERO);
+      if (partError) throw new Error(`No se pudo vaciar (participantes de duelos asociados): ${formatDbError(partError)}`);
+      const { error: roomsError } = await supabase.from('rooms').delete().neq('id', ZERO);
+      if (roomsError) throw new Error(formatDbError(roomsError));
+      const { error: qError } = await supabase.from('questions').delete().neq('id', ZERO);
+      if (qError) throw new Error(formatDbError(qError));
+      const { error } = await supabase.from('exams').delete().neq('id', ZERO);
+      if (error) throw new Error(formatDbError(error));
     } catch (err) {
       console.warn('[Supabase DELETE] all exams:', err);
       set({ exams: previousExams });
@@ -233,8 +317,11 @@ export const useStore = create<AppState>()((set, get) => ({
     }));
 
     try {
+      // Ver nota en deleteExam: primero las respuestas de duelos (FK → 409).
+      const { error: childError } = await supabase.from('room_answers').delete().eq('question_id', actualQuestionId);
+      if (childError) throw new Error(`No se pudo eliminar (respuestas de duelos asociadas): ${formatDbError(childError)}`);
       const { error } = await supabase.from('questions').delete().eq('id', actualQuestionId);
-      if (error) throw error;
+      if (error) throw new Error(formatDbError(error));
     } catch (err) {
       console.warn('[Supabase DELETE] questions:', err);
       set({ exams: previousExams });

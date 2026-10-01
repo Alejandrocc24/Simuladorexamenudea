@@ -5,6 +5,10 @@ import { supabase } from '../lib/supabase';
 export interface UserProfile {
   id: string;
   displayName: string;
+  /** Nickname público elegido en /perfil (duelos, rankings). */
+  nickname?: string | null;
+  /** Nombre de registro (no editable). */
+  realName?: string | null;
   email: string;
   photoURL?: string;
   role: 'user' | 'admin';
@@ -22,6 +26,8 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
+  /** Mensaje cuando la cuenta fue vetada (se muestra en /login). */
+  bannedNotice: string | null;
   login: () => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
@@ -36,6 +42,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   loading: true,
   isAdmin: false,
+  bannedNotice: null,
   login: async () => {},
   loginWithEmail: async () => {},
   registerWithEmail: async () => {},
@@ -48,14 +55,16 @@ export const ADMIN_EMAIL =
   (import.meta.env.VITE_ADMIN_EMAIL as string | undefined)?.toLowerCase() ??
   'cadavidalejandro2@gmail.com';
 
-function localProfile(user: User, dbRole?: string | null): UserProfile {
+function localProfile(user: User, dbRole?: string | null, dbNombre?: string | null, dbNickname?: string | null): UserProfile {
   const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-  const displayName =
+  // Orden: nickname público > nombre de registro > metadatos de auth.
+  const metaName =
     (meta['displayName'] as string | undefined) ??
     (meta['full_name'] as string | undefined) ??
     (meta['name'] as string | undefined) ??
     user.email?.split('@')[0] ??
     'Aspirante UdeA';
+  const displayName = (dbNickname && dbNickname.trim()) || (dbNombre && dbNombre.trim()) || metaName;
   const photoURL =
     (meta['avatar_url'] as string | undefined) ??
     (meta['picture'] as string | undefined) ??
@@ -65,6 +74,8 @@ function localProfile(user: User, dbRole?: string | null): UserProfile {
   return {
     id: user.id,
     displayName,
+    nickname: dbNickname ?? null,
+    realName: (dbNombre && dbNombre.trim()) || null,
     email: user.email ?? '',
     photoURL,
     role,
@@ -77,9 +88,21 @@ function localProfile(user: User, dbRole?: string | null): UserProfile {
   };
 }
 
-async function ensureProfileRow(user: User): Promise<string | null> {
+async function ensureProfileRow(user: User): Promise<{ role: string | null; nombre: string | null; nickname: string | null }> {
+  const none = { role: null as string | null, nombre: null as string | null, nickname: null as string | null };
   try {
-    const { data } = await supabase.from('profiles').select('id,nombre,role,email').eq('id', user.id).maybeSingle();
+    // Con la migración v4b se lee también nickname; si aún no se aplicó,
+    // se reintenta con el esquema anterior (la columna no existe).
+    let data: Record<string, unknown> | null = null;
+    const full = await supabase.from('profiles').select('id,nombre,nickname,role,email').eq('id', user.id).maybeSingle();
+    if (full.error) {
+      if (!/nickname|column|columna/i.test(full.error.message)) throw full.error;
+      const legacy = await supabase.from('profiles').select('id,nombre,role,email').eq('id', user.id).maybeSingle();
+      if (legacy.error) throw legacy.error;
+      data = (legacy.data ?? null) as Record<string, unknown> | null;
+    } else {
+      data = (full.data ?? null) as Record<string, unknown> | null;
+    }
     const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
     const nombre =
       (meta['displayName'] as string | undefined) ??
@@ -95,7 +118,7 @@ async function ensureProfileRow(user: User): Promise<string | null> {
         email: user.email ?? null,
         role: isSuperAdmin ? 'admin' : 'user',
       });
-      return isSuperAdmin ? 'admin' : 'user';
+      return { role: isSuperAdmin ? 'admin' : 'user', nombre, nickname: null };
     }
 
     const row = data as Record<string, unknown>;
@@ -105,12 +128,21 @@ async function ensureProfileRow(user: User): Promise<string | null> {
     if (isSuperAdmin && row['role'] !== 'admin') patch['role'] = 'admin';
     if (Object.keys(patch).length > 0) {
       await supabase.from('profiles').update(patch).eq('id', user.id);
-      if (patch['role'] === 'admin') return 'admin';
+      if (patch['role'] === 'admin')
+        return {
+          role: 'admin',
+          nombre: typeof row['nombre'] === 'string' ? (row['nombre'] as string) : nombre,
+          nickname: typeof row['nickname'] === 'string' ? (row['nickname'] as string) : null,
+        };
     }
-    return typeof row['role'] === 'string' ? (row['role'] as string) : null;
+    return {
+      role: typeof row['role'] === 'string' ? (row['role'] as string) : null,
+      nombre: typeof row['nombre'] === 'string' ? (row['nombre'] as string) : null,
+      nickname: typeof row['nickname'] === 'string' ? (row['nickname'] as string) : null,
+    };
   } catch (err) {
     console.warn('No se pudo sincronizar profiles:', err);
-    return null;
+    return none;
   }
 }
 
@@ -119,16 +151,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bannedNotice, setBannedNotice] = useState<string | null>(null);
+
+  // ¿Está vetado este usuario? Falla en abierto si la migración v4 aún no se aplicó.
+  const checkBanned = useCallback(async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.rpc('am_i_banned');
+      if (error) throw error;
+      return data === true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const forceSignOut = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // ignorar: igual se limpia el estado local
+    }
+    setUser(null);
+    setSession(null);
+    setProfile(null);
+  }, []);
 
   const syncUser = useCallback(async (u: User | null) => {
-    setUser(u);
     if (!u) {
+      setUser(null);
       setProfile(null);
       return;
     }
-    const dbRole = await ensureProfileRow(u);
-    setProfile(localProfile(u, dbRole));
-  }, []);
+    if (await checkBanned()) {
+      await forceSignOut();
+      setBannedNotice('Tu cuenta fue suspendida por un administrador. Si crees que es un error, contáctanos.');
+      return;
+    }
+    setBannedNotice(null);
+    setUser(u);
+    const { role: dbRole, nombre: dbNombre, nickname: dbNickname } = await ensureProfileRow(u);
+    setProfile(localProfile(u, dbRole, dbNombre, dbNickname));
+  }, [checkBanned, forceSignOut]);
 
   useEffect(() => {
     let mounted = true;
@@ -152,6 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [syncUser]);
 
   const login = useCallback(async () => {
+    setBannedNotice(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -160,6 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loginWithEmail = useCallback(async (email: string, password: string) => {
+    setBannedNotice(null);
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
@@ -193,6 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setSession(null);
     setProfile(null);
+    setBannedNotice(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -206,7 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, session, profile, loading, isAdmin, login, loginWithEmail, registerWithEmail, resetPassword, logout, refreshProfile }}
+      value={{ user, session, profile, loading, isAdmin, bannedNotice, login, loginWithEmail, registerWithEmail, resetPassword, logout, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

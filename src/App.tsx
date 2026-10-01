@@ -10,6 +10,7 @@ import { CompetitionMode } from './components/CompetitionMode';
 import { NotFound } from './components/NotFound';
 import { Login } from './components/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { Profile } from './components/Profile';
 import { useStore } from './store/useStore';
 
 // Simple PWA Register Hook implementation for Vite PWA
@@ -55,6 +56,7 @@ function AppRoutes() {
         <Route path="/mock-exam" element={<RequireAuth><MockExam /></RequireAuth>} />
         <Route path="/competition" element={<RequireAuth><CompetitionMode /></RequireAuth>} />
         <Route path="/whiteboard" element={<RequireAuth><Whiteboard /></RequireAuth>} />
+        <Route path="/perfil" element={<RequireAuth><Profile /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
         <Route path="*" element={<NotFound />} />
       </Routes>

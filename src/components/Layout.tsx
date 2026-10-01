@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut } from 'lucide-react';
+import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut, User } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -53,6 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Simulacro', path: '/mock-exam', icon: Trophy, adminOnly: false },
     { name: 'Competir (1v1)', path: '/competition', icon: Swords, adminOnly: false },
     { name: 'Pizarra', path: '/whiteboard', icon: PenTool, adminOnly: false },
+    { name: 'Mi perfil', path: '/perfil', icon: User, adminOnly: false },
     { name: 'Administración', path: '/admin', icon: Settings, adminOnly: true },
   ].filter((item) => !item.adminOnly || isAdmin);
 
@@ -164,9 +165,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       {profile?.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                      <Link to="/perfil" title="Editar mi perfil" className="text-xs font-bold text-gray-900 dark:text-white truncate block hover:underline">
                         {profile?.displayName || user.email}
-                      </p>
+                      </Link>
                       <p className="text-[11px] font-semibold text-[#005F2B] dark:text-emerald-400">
                         ⚡ {profile?.rating || 1000} ELO
                       </p>

@@ -14,6 +14,18 @@ export const supabase = createClient(
   supabaseAnonKey ?? 'placeholder-anon-key'
 );
 
+// Formatea errores PostgREST (message + code/hint/details) para que la consola
+// y la UI muestren la causa real en vez de solo el status HTTP.
+export function formatDbError(error: unknown): string {
+  if (!error || typeof error !== 'object') return String(error);
+  const e = error as { message?: string; code?: string; hint?: string; details?: string };
+  const parts: string[] = [e.message ?? 'Error de base de datos'];
+  if (e.code) parts.push(`(código ${e.code})`);
+  if (e.details) parts.push(e.details);
+  if (e.hint) parts.push(`Sugerencia: ${e.hint}`);
+  return parts.join(' ');
+}
+
 // Tipos mínimos que reflejan el esquema normalizado en Supabase
 export interface SupabaseExamRow {
   id: string;
@@ -21,6 +33,10 @@ export interface SupabaseExamRow {
   periodo: string | null;
   tipo: 'examen_real' | 'simulacro' | null;
   created_at?: string;
+  /** Textos de lectura compartidos (JSON v3). Columna nueva `shared_texts` (jsonb). */
+  shared_texts?: unknown;
+  /** Alias legacy por si la columna se creó con otro nombre. */
+  sharedTexts?: unknown;
 }
 
 export interface SupabaseQuestionRow {
@@ -36,4 +52,10 @@ export interface SupabaseQuestionRow {
   tiene_respuesta_oficial: boolean | null;
   explicacion_md: string | null;
   created_at?: string;
+  /** Bloque oficial del examen (JSON v3). Columna nueva. */
+  category?: string | null;
+  /** Confianza IA de uso interno (JSON v3). Columna nueva. */
+  confidence?: string | null;
+  /** Nivel de dificultad. Columna nueva. */
+  difficulty?: string | null;
 }

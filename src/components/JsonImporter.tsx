@@ -2,8 +2,16 @@ import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { FileJson, Upload, Download, CheckCircle2, AlertTriangle, FileCode, Copy, Check, Info } from 'lucide-react';
 import { cn } from './Layout';
-import { supabase } from '../lib/supabase';
-import { areaToSupabase } from '../lib/examAdapter';
+import { supabase, formatDbError } from '../lib/supabase';
+import { areaToSupabase, toPeriodo } from '../lib/examAdapter';
+import {
+  cleanImportText,
+  cleanQuestionTexts,
+  isTruncatedJson,
+  normalizeConfidence,
+  normalizeDifficulty,
+  parseExamJson,
+} from '../lib/jsonClean';
 
 interface JsonImporterProps {
   onImportSuccess?: () => void;
@@ -34,7 +42,9 @@ export const SAMPLE_JSON_TEMPLATE = {
       ],
       correctAnswer: 'B',
       explanation: 'Cada máquina produce 120 / 3 = 40 piezas/hora. Con 5 máquinas: 5 × 40 = 200 piezas/hora. En 4 horas: 200 × 4 = 800 piezas.',
-      topic: 'Proporcionalidad y Regla de Tres',
+      topic: 'Proporcionalidad directa',
+      category: 'Proporcionalidad y cálculo',
+      confidence: 'high',
       difficulty: 'medium',
       assets: [],
     },
@@ -50,7 +60,9 @@ export const SAMPLE_JSON_TEMPLATE = {
       ],
       correctAnswer: 'B',
       explanation: 'El área sombreada equivale geométricamente a la mitad del cuadrado exterior: $(10 \\times 10) / 2 = 50\\text{ cm}^2$.',
-      topic: 'Geometría Plana',
+      topic: 'Áreas sombreadas',
+      category: 'Geométrico y espacial',
+      confidence: 'high',
       difficulty: 'medium',
       assets: [],
     },
@@ -65,43 +77,99 @@ export const SAMPLE_JSON_TEMPLATE = {
         { id: 'D', text: 'Demostrado científicamente' },
       ],
       correctAnswer: 'A',
-      explanation: 'Una paradoja plantea una contradicción aparente que encierra una verdad válida en su contexto.',
-      topic: 'Vocabulario en Contexto',
+      explanation: '> **Tip:** una paradoja plantea una contradicción aparente que encierra una verdad válida en su contexto.',
+      topic: 'Vocabulario en contexto',
+      category: 'Literal',
+      confidence: 'medium',
       difficulty: 'easy',
       assets: [],
     },
   ],
 };
 
-function extractImages(q: Record<string, unknown>): string[] {
-  const out: string[] = [];
-  const push = (v: unknown) => {
+/**
+ * Extrae las imágenes de una pregunta (herramienta de recorte v2):
+ * `{ type: "image", target, description, croppedImage, croppedFromPage }`.
+ * Se conserva `target`/`description` cuando existen para poder separar
+ * visualmente el bloque de opciones y mostrar el contexto compartido.
+ * El orden del arreglo se respeta (compartido → enunciado → tabla → opciones).
+ */
+function extractImages(q: Record<string, unknown>): Array<string | Record<string, unknown>> {
+  const out: Array<string | Record<string, unknown>> = [];
+  const pushUrl = (v: unknown) => {
     if (typeof v === 'string' && v) out.push(v);
+  };
+  const pushEntry = (o: Record<string, unknown>) => {
+    const url = o['imagePath'] ?? o['croppedImage'] ?? o['base64'] ?? o['image'] ?? o['url'] ?? o['content'];
+    if (typeof url !== 'string' || !url) return;
+    const target = typeof o['target'] === 'string' ? o['target'] : undefined;
+    const description = typeof o['description'] === 'string' ? o['description'] : undefined;
+    const croppedFromPage = o['croppedFromPage'];
+    // Sin metadatos se guarda el string plano (compatibilidad con filas viejas).
+    if (!target && !description) {
+      out.push(url);
+      return;
+    }
+    const entry: Record<string, unknown> = { imagePath: url, croppedImage: url };
+    if (target) entry['target'] = target;
+    if (description) entry['description'] = description;
+    if (typeof croppedFromPage === 'number') entry['croppedFromPage'] = croppedFromPage;
+    out.push(entry);
   };
   const assets = q['assets'];
   if (Array.isArray(assets)) {
     for (const a of assets) {
-      if (typeof a === 'string') push(a);
-      else if (a && typeof a === 'object') {
-        const o = a as Record<string, unknown>;
-        push(o['imagePath'] ?? o['croppedImage'] ?? o['base64'] ?? o['image'] ?? o['url'] ?? o['content']);
-      }
+      if (typeof a === 'string') pushUrl(a);
+      else if (a && typeof a === 'object') pushEntry(a as Record<string, unknown>);
     }
   }
   const recortes = q['imagenes_recorte'];
   if (Array.isArray(recortes)) {
     for (const img of recortes) {
-      if (typeof img === 'string') push(img);
+      if (typeof img === 'string') pushUrl(img);
       else if (img && typeof img === 'object') {
         const o = img as Record<string, unknown>;
-        push(o['croppedImage'] ?? o['base64']);
+        pushUrl(o['croppedImage'] ?? o['base64']);
       }
     }
   }
-  if (typeof q['imagen_recorte'] === 'string') push(q['imagen_recorte']);
+  if (typeof q['imagen_recorte'] === 'string') pushUrl(q['imagen_recorte']);
   const imagenes = q['imagenes'];
-  if (Array.isArray(imagenes)) imagenes.forEach(push);
+  if (Array.isArray(imagenes)) imagenes.forEach(pushUrl);
   return out.filter(Boolean).slice(0, 10);
+}
+
+function normalizeYear(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+function normalizeSemester(raw: unknown): 1 | 2 | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (n === 1) return 1;
+  if (n === 2) return 2;
+  return null;
+}
+
+function normalizeSharedTexts(raw: unknown): Array<{ id: string; title: string; text: string; appliesToQuestions: number[] }> {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Array<Record<string, unknown>>)
+    .filter((s) => s && typeof s === 'object')
+    .map((s, idx) => {
+      const appliesRaw = s['appliesToQuestions'] ?? s['appliesTo'] ?? [];
+      const appliesToQuestions = Array.isArray(appliesRaw)
+        ? appliesRaw.map(Number).filter((n) => Number.isFinite(n))
+        : [];
+      return {
+        id: String(s['id'] ?? `texto-${idx + 1}`),
+        title: cleanImportText(s['title'] ?? s['titulo'] ?? ''),
+        text: cleanImportText(s['text'] ?? s['content'] ?? s['contenido'] ?? ''),
+        appliesToQuestions,
+      };
+    })
+    .filter((s) => s.text.length > 0 || s.title.length > 0);
 }
 
 function normalizeOptionsForSupabase(q: Record<string, unknown>): Array<{ id: string; texto: string }> {
@@ -164,15 +232,27 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
       let rlCount = 0;
       let clCount = 0;
       let imagesCount = 0;
+      let sharedTextsCount = 0;
+      let lowConfidenceCount = 0;
 
       questionsList.forEach((q) => {
         const sec = String(q['sectionId'] ?? q['area'] ?? q['section'] ?? '').toLowerCase();
         if (sec.includes('lector') || sec.includes('competencia') || sec.includes('español')) clCount++;
         else rlCount++;
         imagesCount += extractImages(q).length;
+        if (normalizeConfidence(q['confidence']) === 'low') lowConfidenceCount++;
       });
 
-      return { title: examTitle, totalQuestions: questionsList.length, rlCount, clCount, base64ImagesCount: imagesCount, sharedTextsCount: 0 };
+      if (d && Array.isArray(d['sharedTexts'])) {
+        sharedTextsCount = (d['sharedTexts'] as unknown[]).length;
+      } else if (d && Array.isArray(d['exams'])) {
+        sharedTextsCount = (d['exams'] as Array<Record<string, unknown>>).reduce(
+          (acc, e) => acc + (Array.isArray(e['sharedTexts']) ? (e['sharedTexts'] as unknown[]).length : 0),
+          0
+        );
+      }
+
+      return { title: examTitle, totalQuestions: questionsList.length, rlCount, clCount, base64ImagesCount: imagesCount, sharedTextsCount, lowConfidenceCount };
     } catch (e: unknown) {
       throw new Error(e instanceof Error ? e.message : 'Error validando estructura del examen.');
     }
@@ -189,7 +269,10 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
-        const parsed = JSON.parse(text);
+        if (isTruncatedJson(text)) {
+          throw new Error('El JSON parece estar cortado (no termina en `}` o `]`). No se importó nada; verifica el archivo completo.');
+        }
+        const parsed = parseExamJson(text);
         analyzeJSON(parsed);
         setParsedData(parsed);
       } catch (err: unknown) {
@@ -214,7 +297,7 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
     }
 
     try {
-      const parsed = JSON.parse(text);
+      const parsed = parseExamJson(text);
       analyzeJSON(parsed);
       setParsedData(parsed);
     } catch (err: unknown) {
@@ -223,26 +306,42 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
     }
   };
 
-  const collectExamsToImport = (data: unknown): Array<{ title: string; year: number; semester: number; questions: Array<Record<string, unknown>> }> => {
+  interface ExamToImport {
+    title: string;
+    year: number | null;
+    semester: 1 | 2 | null;
+    questions: Array<Record<string, unknown>>;
+    sharedTexts: Array<{ id: string; title: string; text: string; appliesToQuestions: number[] }>;
+  }
+
+  const collectExamsToImport = (data: unknown): Array<ExamToImport> => {
     const d = data as Record<string, unknown>;
     if (Array.isArray(data)) {
-      return [{ title: `Examen Importado ${new Date().toLocaleDateString('es-CO')}`, year: new Date().getFullYear(), semester: 1, questions: data as Array<Record<string, unknown>> }];
+      return [{
+        title: `Examen Importado ${new Date().toLocaleDateString('es-CO')}`,
+        year: null,
+        semester: null,
+        questions: data as Array<Record<string, unknown>>,
+        sharedTexts: [],
+      }];
     }
     if (d && Array.isArray(d['exams'])) {
       return (d['exams'] as Array<Record<string, unknown>>).map((e) => ({
-        title: String(e['title'] ?? e['nombre'] ?? `Examen ${new Date().getFullYear()}`),
-        year: Number(e['year'] ?? new Date().getFullYear()) || new Date().getFullYear(),
-        semester: e['semester'] === 2 ? 2 : 1,
+        title: cleanImportText(e['title'] ?? e['nombre'] ?? 'Examen sin título') || 'Examen sin título',
+        year: normalizeYear(e['year']),
+        semester: normalizeSemester(e['semester']),
         questions: (Array.isArray(e['questions']) ? e['questions'] : []) as Array<Record<string, unknown>>,
+        sharedTexts: normalizeSharedTexts(e['sharedTexts']),
       }));
     }
     if (d && Array.isArray(d['questions'])) {
       return [
         {
-          title: String(d['title'] ?? `Examen UdeA ${d['year'] ?? new Date().getFullYear()}`),
-          year: Number(d['year'] ?? new Date().getFullYear()) || new Date().getFullYear(),
-          semester: d['semester'] === 2 ? 2 : 1,
+          title: cleanImportText(d['title'] ?? 'Examen sin título') || 'Examen sin título',
+          year: normalizeYear(d['year']),
+          semester: normalizeSemester(d['semester']),
           questions: d['questions'] as Array<Record<string, unknown>>,
+          sharedTexts: normalizeSharedTexts(d['sharedTexts']),
         },
       ];
     }
@@ -264,49 +363,94 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
 
       const examsToImport = collectExamsToImport(parsedData);
       let totalQuestions = 0;
+      let pendingReview = 0;
 
       for (const examData of examsToImport) {
-        const periodo = `${examData.year}-${examData.semester}`;
-        const { data: examRow, error: examError } = await supabase
-          .from('exams')
-          .insert({ nombre: examData.title, periodo, tipo: 'examen_real' })
-          .select('id')
-          .single();
-        if (examError || !examRow) throw new Error(examError?.message ?? 'No se pudo crear el examen.');
-        const examId = (examRow as Record<string, unknown>)['id'] as string;
+        const periodo = toPeriodo(examData.year, examData.semester);
+        const tipo = examData.year == null ? 'simulacro' : 'examen_real';
+        // `shared_texts` es columna nueva (ver supabase/migration_v3.sql).
+        // Si aún no existe en el proyecto, se reintenta sin ella.
+        let examId: string | null = null;
+        const baseExamPayload: Record<string, unknown> = { nombre: examData.title, periodo, tipo };
+        try {
+          const { data: examRow, error: examError } = await supabase
+            .from('exams')
+            .insert({ ...baseExamPayload, shared_texts: examData.sharedTexts })
+            .select('id')
+            .single();
+          if (examError) throw examError;
+          examId = (examRow as Record<string, unknown>)['id'] as string;
+        } catch (errWithShared) {
+          const msg = errWithShared instanceof Error ? errWithShared.message : String(errWithShared);
+          if (!/shared_texts|column|columna/i.test(msg)) throw errWithShared;
+          const { data: examRow, error: examError } = await supabase
+            .from('exams')
+            .insert(baseExamPayload)
+            .select('id')
+            .single();
+          if (examError || !examRow) throw new Error(examError ? formatDbError(examError) : 'No se pudo crear el examen.');
+          examId = (examRow as Record<string, unknown>)['id'] as string;
+        }
+        if (!examId) throw new Error('No se pudo crear el examen.');
 
-        const rows = examData.questions.map((q, idx) => {
+        const rows = examData.questions.map((rawQ, idx) => {
+          const q = cleanQuestionTexts(rawQ);
           const number = q['number'] !== undefined ? Number(q['number']) : idx + 1;
           const sectionId = String(q['sectionId'] ?? q['section'] ?? q['area'] ?? 'razonamiento-logico');
           const opciones = normalizeOptionsForSupabase(q);
           const rawAnswer = String(q['correctAnswer'] ?? q['respuesta_correcta'] ?? '').trim().toUpperCase();
           const respuesta_correcta = ['A', 'B', 'C', 'D', 'E'].includes(rawAnswer) ? rawAnswer : null;
+          const confidence = normalizeConfidence(q['confidence']);
+          const needsReviewByConfidence = confidence === 'low';
+          // confidence=low → pendiente de revisión (tiene_respuesta_oficial=false
+          // hasta que el admin la apruebe), aunque traiga respuesta.
+          const tiene_respuesta_oficial = respuesta_correcta !== null && !needsReviewByConfidence;
+          if (needsReviewByConfidence) pendingReview++;
           return {
-            exam_id: examId,
+            exam_id: examId as string,
             numero_original: Number.isFinite(number) ? number : idx + 1,
             area: areaToSupabase(sectionId),
-            tema: String(q['topic'] ?? q['tema'] ?? ''),
-            enunciado_md: String(q['statement'] ?? q['enunciado'] ?? q['enunciado_md'] ?? ''),
+            tema: cleanImportText(q['topic'] ?? q['tema'] ?? '') || null,
+            category: typeof q['category'] === 'string' && String(q['category']).trim() ? String(q['category']).trim() : null,
+            confidence: confidence,
+            difficulty: normalizeDifficulty(q['difficulty']),
+            enunciado_md: cleanImportText(q['statement'] ?? q['enunciado'] ?? q['enunciado_md'] ?? ''),
             imagenes: extractImages(q),
             opciones,
             respuesta_correcta,
-            tiene_respuesta_oficial: respuesta_correcta !== null,
-            explicacion_md: String(q['explanation'] ?? q['explicacion'] ?? ''),
+            tiene_respuesta_oficial,
+            explicacion_md: cleanImportText(q['explanation'] ?? q['explicacion'] ?? '') || null,
           };
         });
 
-        // Insertar por lotes para evitar payloads gigantes
+        // Insertar por lotes para evitar payloads gigantes.
+        // Las columnas nuevas (category/confidence/difficulty) pueden no existir
+        // aún: ante ese error se reintenta con el esquema anterior.
         const BATCH = 100;
+        const stripNewColumns = (r: Record<string, unknown>) => {
+          const { category: _c, confidence: _cf, difficulty: _d, ...rest } = r;
+          return rest;
+        };
         for (let i = 0; i < rows.length; i += BATCH) {
           const chunk = rows.slice(i, i + BATCH);
           const { error } = await supabase.from('questions').insert(chunk);
-          if (error) throw new Error(error.message);
+          if (error) {
+            if (/category|confidence|difficulty|column|columna/i.test(error.message)) {
+              const { error: legacyError } = await supabase.from('questions').insert(chunk.map(stripNewColumns));
+              if (legacyError) throw new Error(formatDbError(legacyError));
+            } else {
+              throw new Error(formatDbError(error));
+            }
+          }
         }
         totalQuestions += rows.length;
       }
 
       await fetchExams();
-      setSuccessMessage(`¡Éxito! Se importaron ${totalQuestions} preguntas correctamente a Supabase.`);
+      setSuccessMessage(
+        `¡Éxito! Se importaron ${totalQuestions} preguntas correctamente a Supabase.` +
+          (pendingReview > 0 ? ` ${pendingReview} quedaron pendientes de revisión (confidence=low).` : '')
+      );
       setParsedData(null);
       setJsonText('');
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -423,6 +567,16 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
               <span className="font-bold text-sm">{stats.base64ImagesCount}</span>
             </div>
           </div>
+          <div className="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+            <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200">
+              {stats.sharedTextsCount} texto(s) compartido(s)
+            </span>
+            {stats.lowConfidenceCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">
+                {stats.lowConfidenceCount} con confidence=low → revisión
+              </span>
+            )}
+          </div>
 
           <button
             onClick={handleImportSubmit}
@@ -464,14 +618,20 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
 
         {showDocs && (
           <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-900 rounded-xl text-[11px] text-gray-600 dark:text-gray-400 space-y-2 border border-gray-200 dark:border-gray-800">
-            <p className="font-bold text-gray-800 dark:text-gray-200">Estructura requerida:</p>
+            <p className="font-bold text-gray-800 dark:text-gray-200">Estructura JSON v3:</p>
             <ul className="list-disc list-inside space-y-1">
+              <li><strong className="text-gray-700 dark:text-gray-300">title / year / semester:</strong> <code>year</code> y <code>semester</code> pueden ser <code>null</code> (simulacros de institutos; se muestra el título tal cual).</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">sharedTexts:</strong> <code>[&#123; "id", "title", "text", "appliesToQuestions": [16, 17] &#125;]</code>. Se guardan en el examen y se muestran en lectura.</li>
               <li><strong className="text-gray-700 dark:text-gray-300">statement:</strong> Enunciado (soporta LaTeX como $x^2$).</li>
-              <li><strong className="text-gray-700 dark:text-gray-300">options:</strong> 4 opciones <code>[&#123; "id": "A", "text": "..." &#125;, ...]</code>.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">options:</strong> 4 opciones <code>[&#123; "id": "A", "text": "..." &#125;, ...]</code>. Si son dibujos, usar <code>"Opción A (ver figura)"</code> (nunca vacío).</li>
               <li><strong className="text-gray-700 dark:text-gray-300">correctAnswer:</strong> <code>"A"</code>, <code>"B"</code>, <code>"C"</code> o <code>"D"</code>.</li>
               <li><strong className="text-gray-700 dark:text-gray-300">sectionId:</strong> <code>"razonamiento-logico"</code> o <code>"competencia-lectora"</code>.</li>
-              <li><strong className="text-gray-700 dark:text-gray-300">assets/imagenes:</strong> URLs o data-uri; se guardan en <code>questions.imagenes</code> (jsonb) en Supabase.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">category:</strong> RL: Proporcionalidad y cálculo, Álgebra y patrones, Geométrico y espacial, Análisis de información, Lógica y deducción. CL: Literal, Inferencial, Analógica.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">confidence:</strong> <code>"high" | "medium" | "low"</code> (interno). <code>low</code> importa la pregunta como pendiente de revisión.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">difficulty:</strong> <code>"easy" | "medium" | "hard"</code>.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">assets:</strong> <code>&#123; "type": "image", "target": "statement" | "table" | "options" | "shared", "description", "croppedImage": "data:..." &#125;</code>. Ordenados: compartido → enunciado → tabla → opciones.</li>
             </ul>
+            <p className="pt-1">Al importar se limpian <code>[cite: N]</code> y barras LaTeX dobles, y se rechazan JSON cortados. Columnas nuevas requeridas en Supabase: ver <code>supabase/migration_v3.sql</code>.</p>
           </div>
         )}
       </div>

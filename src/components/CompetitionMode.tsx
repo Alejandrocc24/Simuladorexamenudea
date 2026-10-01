@@ -280,25 +280,33 @@ export function CompetitionMode() {
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-full mb-6 animate-pulse">
             <Clock className="w-3.5 h-3.5" />
-            Esperando jugadores...
+            {me?.isHost ? 'Esperando jugadores...' : 'Esperando inicio del anfitrión...'}
           </div>
 
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Código de tu Sala</h3>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+            {me?.isHost ? 'Código de tu Sala' : 'Te uniste a la sala'}
+          </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-            Comparte este código para que otros aspirantes se unan (hasta {activeMatch.maxParticipants} jugadores):
+            {me?.isHost ? (
+              <>Comparte este código para que otros aspirantes se unan (hasta {activeMatch.maxParticipants} jugadores):</>
+            ) : (
+              <>El anfitrión iniciará el duelo cuando haya suficientes jugadores. No compartas este código.</>
+            )}
           </p>
 
           <div className="flex items-center justify-center gap-3 mb-8">
             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border-2 border-dashed border-emerald-500 font-mono text-3xl font-black tracking-widest text-emerald-600 dark:text-emerald-400">
               {activeMatch.code}
             </div>
-            <button
-              onClick={copyRoomCode}
-              className="p-4 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl transition-colors"
-              title="Copiar código"
-            >
-              {copiedCode ? <Check className="w-6 h-6 text-emerald-600" /> : <Copy className="w-6 h-6" />}
-            </button>
+            {me?.isHost && (
+              <button
+                onClick={copyRoomCode}
+                className="p-4 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl transition-colors"
+                title="Copiar código"
+              >
+                {copiedCode ? <Check className="w-6 h-6 text-emerald-600" /> : <Copy className="w-6 h-6" />}
+              </button>
+            )}
           </div>
 
           <div className="mb-6">
@@ -353,7 +361,7 @@ export function CompetitionMode() {
             </div>
           ) : (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Esperando a que el anfitrión inicie el duelo...
+              Esperando a que {activeMatch.players.find(p => p.isHost)?.displayName || 'el anfitrión'} inicie el duelo...
             </p>
           )}
 

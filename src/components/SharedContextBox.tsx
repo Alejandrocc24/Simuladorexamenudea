@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SharedText } from '../types';
+import { SharedText, QuestionAsset } from '../types';
 import { BookOpen, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { MathRenderer } from './MathRenderer';
 
@@ -8,13 +8,21 @@ interface SharedContextBoxProps {
   questionNumber: number;
   className?: string;
   defaultExpanded?: boolean;
+  /**
+   * Assets con `target = "shared"` de la pregunta actual.
+   * La herramienta de recorte repite la figura del texto compartido
+   * como asset en cada pregunta del grupo; si se pasan aquí,
+   * se muestran dentro del contexto y la página no debe repetirlos.
+   */
+  sharedImages?: QuestionAsset[];
 }
 
 export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   sharedTexts,
   questionNumber,
   className = '',
-  defaultExpanded = true
+  defaultExpanded = true,
+  sharedImages = []
 }) => {
   if (!sharedTexts || !Array.isArray(sharedTexts) || sharedTexts.length === 0) {
     return null;
@@ -32,7 +40,7 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   return (
     <div className={`space-y-4 mb-6 ${className}`}>
       {matchingTexts.map((st) => (
-        <SharedTextCard key={st.id} sharedText={st} defaultExpanded={defaultExpanded} />
+        <SharedTextCard key={st.id} sharedText={st} defaultExpanded={defaultExpanded} sharedImages={sharedImages} />
       ))}
     </div>
   );
@@ -41,10 +49,15 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
 interface SharedTextCardProps {
   sharedText: SharedText;
   defaultExpanded: boolean;
+  sharedImages?: QuestionAsset[];
 }
 
-const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded }) => {
+const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded, sharedImages = [] }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const images = (sharedImages ?? []).filter((a) => {
+    const src = a.imagePath || a.croppedImage || a.content || a.base64;
+    return a.type === 'image' && !!src;
+  });
 
   return (
     <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 dark:from-indigo-950/30 dark:via-gray-900 dark:to-blue-950/20 shadow-sm overflow-hidden transition-all">
@@ -81,7 +94,26 @@ const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpa
 
       {/* Content Area */}
       {isExpanded && (
-        <div className="p-5 sm:p-6 text-gray-800 dark:text-gray-200 text-base leading-relaxed max-h-[500px] overflow-y-auto border-t border-indigo-100 dark:border-gray-800">
+        <div className="p-5 sm:p-6 text-gray-800 dark:text-gray-200 text-base leading-relaxed max-h-[600px] overflow-y-auto border-t border-indigo-100 dark:border-gray-800">
+          {images.length > 0 && (
+            <div className="mb-4 space-y-3">
+              {images.map((a, idx) => {
+                const src = a.imagePath || a.croppedImage || a.content || a.base64;
+                return (
+                  <figure key={a.id || idx} className="flex flex-col items-center gap-1.5">
+                    <img
+                      src={src}
+                      alt={a.description || 'Figura del texto compartido'}
+                      className="max-w-full max-h-80 object-contain rounded-lg border border-indigo-100 dark:border-indigo-900/50 bg-white dark:bg-gray-900"
+                    />
+                    {a.description && (
+                      <figcaption className="text-xs text-gray-500 dark:text-gray-400 text-center">{a.description}</figcaption>
+                    )}
+                  </figure>
+                );
+              })}
+            </div>
+          )}
           <MathRenderer text={sharedText.text} />
         </div>
       )}

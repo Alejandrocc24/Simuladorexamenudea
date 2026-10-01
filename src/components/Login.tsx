@@ -25,7 +25,7 @@ function friendlyAuthError(message: string): string {
 }
 
 export function Login() {
-  const { user, login, loginWithEmail, registerWithEmail, resetPassword, loading } = useAuth();
+  const { user, login, loginWithEmail, registerWithEmail, resetPassword, loading, bannedNotice } = useAuth();
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -134,6 +134,12 @@ export function Login() {
         </div>
 
         <form onSubmit={handleEmailSubmit} className="space-y-3">
+          {bannedNotice && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs rounded-xl flex items-start gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{bannedNotice}</span>
+            </div>
+          )}
           {mode === 'register' && (
             <label className="block">
               <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Nombre</span>

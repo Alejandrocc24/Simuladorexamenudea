@@ -5,6 +5,8 @@ export type QuestionStatus = 'DRAFT' | 'NEEDS_REVIEW' | 'APPROVED' | 'PUBLISHED'
 export interface QuestionAsset {
   id: string;
   type: 'image' | 'math' | 'table';
+  /** Dónde va la imagen dentro de la pregunta (informativo, v2/v3 del recortador). */
+  target?: 'statement' | 'table' | 'options' | 'shared' | string;
   content?: string; // URL for image, LaTeX for math, etc.
   imagePath?: string; // URL to the cropped image
   croppedImage?: string; // Direct base64 Data URI
@@ -21,6 +23,8 @@ export interface QuestionOption {
   text: string;
 }
 
+export type QuestionConfidence = 'high' | 'medium' | 'low';
+
 export interface Question {
   id: string;
   examId: string;
@@ -32,6 +36,10 @@ export interface Question {
   assets?: QuestionAsset[];
   explanation: string;
   topic: string;
+  /** Bloque oficial del examen (lista cerrada por área, JSON v3). */
+  category?: string;
+  /** Confianza de la extracción IA. Uso interno, no se muestra al estudiante. */
+  confidence?: QuestionConfidence | string;
   difficulty: Difficulty;
   status: QuestionStatus;
   needsReview?: boolean;
@@ -66,7 +74,8 @@ export interface SharedText {
 export interface Exam {
   id: string;
   title: string;
-  year: number;
+  /** Null en simulacros de institutos (sin año/semestre oficial). */
+  year: number | null;
   semester: 1 | 2 | null;
   sections: Section[];
   sharedTexts?: SharedText[];

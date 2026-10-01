@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Question } from '../types';
 import { MathRenderer } from './MathRenderer';
+import { categoriesForSection } from '../lib/taxonomy';
 import { 
   CheckCircle, 
   AlertTriangle, 
@@ -30,6 +31,7 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
   const [correctAnswer, setCorrectAnswer] = useState<'A' | 'B' | 'C' | 'D' | undefined>(question.correctAnswer);
   const [explanation, setExplanation] = useState(question.explanation || '');
   const [topic, setTopic] = useState(question.topic || '');
+  const [category, setCategory] = useState(question.category || '');
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>(question.difficulty || 'medium');
 
   // Status feedback
@@ -52,6 +54,7 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
     setCorrectAnswer(question.correctAnswer);
     setExplanation(question.explanation || '');
     setTopic(question.topic || '');
+    setCategory(question.category || '');
     setDifficulty(question.difficulty || 'medium');
     setValidationError(null);
     setSaveSuccess(false);
@@ -94,6 +97,7 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
         correctAnswer,
         explanation,
         topic,
+        category: category || undefined,
         difficulty,
         needsReview: false,
         ...extraUpdates
@@ -133,6 +137,16 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {question.sectionId === 'razonamiento-logico' ? 'Razonamiento Lógico' : 'Competencia Lectora'}
+            {question.confidence && (
+              <span className={cn(
+                'ml-2 px-2 py-0.5 rounded-full font-bold',
+                question.confidence === 'low'
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+              )} title="Confianza de la extracción IA (uso interno, no se muestra al estudiante)">
+                confidence: {question.confidence}
+              </span>
+            )}
           </p>
         </div>
 
@@ -201,17 +215,32 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
       {/* TAB 1: EDIT MODE */}
       {activeTab === 'edit' ? (
         <div className="space-y-4 flex-1">
-          {/* Metadata Row: Topic & Difficulty */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Metadata Row: Category / Topic / Difficulty */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-                Tema / Clasificación
+                Categoría (bloque oficial)
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full text-xs p-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              >
+                <option value="">Sin clasificar</option>
+                {categoriesForSection(question.sectionId).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Tema (dentro de su categoría)
               </label>
               <input
                 type="text"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="Ej: Geometría, Deducción lógica, Comprensión literal"
+                placeholder="Ej: Proporcionalidad directa, Áreas sombreadas"
                 className="w-full text-xs p-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               />
             </div>

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { MathRenderer } from './MathRenderer';
 import { SharedContextBox } from './SharedContextBox';
+import { MainQuestionAssets, OptionsAssetsBlock, hasSharedContext, sharedAssetsOf } from './QuestionAssets';
 import { ConfirmModal } from './ConfirmModal';
 import { cn } from './Layout';
 import { BlockMath } from 'react-katex';
@@ -515,7 +516,12 @@ export function MockExam() {
           {/* Main Question Panel (3 cols) */}
           <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-4 sm:p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 space-y-6 min-w-0">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-700">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {currentQ.category && (
+                  <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/60 rounded-full text-xs font-bold">
+                    {currentQ.category}
+                  </span>
+                )}
                 <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-bold uppercase">
                   {currentQ.topic}
                 </span>
@@ -546,7 +552,8 @@ export function MockExam() {
             {/* Shared Context Text if present */}
             <SharedContextBox 
               sharedTexts={exams.find(e => e.id === currentQ.examId)?.sharedTexts} 
-              questionNumber={currentQ.number} 
+              questionNumber={currentQ.number}
+              sharedImages={sharedAssetsOf(currentQ.assets)}
             />
 
             {/* Statement */}
@@ -554,31 +561,14 @@ export function MockExam() {
               <MathRenderer text={currentQ.statement} />
             </div>
 
-            {/* Assets */}
-            {currentQ.assets && currentQ.assets.length > 0 && (
-              <div className="space-y-4 my-6">
-                {currentQ.assets.map((asset, idx) => {
-                  const imgSrc = asset.imagePath || asset.croppedImage || asset.content || asset.base64;
-                  return (
-                    <div key={asset.id || idx} className="p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 flex justify-center">
-                      {asset.type === 'image' && imgSrc && (
-                        <img 
-                          src={imgSrc} 
-                          alt="Recurso gráfico" 
-                          className="max-w-full max-h-96 object-contain rounded-xl"
-                        />
-                      )}
-                      {asset.type === 'math' && (
-                        <div className="py-2 overflow-x-auto text-base">
-                          {asset.imagePath && <img src={asset.imagePath} alt="Formula" className="max-w-full h-auto mb-2 rounded" />}
-                          {asset.content && <BlockMath math={asset.content} />}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {/* Figuras del enunciado/tabla (sin el bloque de opciones ni el contexto ya mostrado) */}
+            <MainQuestionAssets
+              assets={currentQ.assets}
+              sharedShown={hasSharedContext(exams.find(e => e.id === currentQ.examId)?.sharedTexts, currentQ.number)}
+            />
+
+            {/* Bloque de opciones en figura, separado justo encima de los botones */}
+            <OptionsAssetsBlock assets={currentQ.assets} />
 
             {/* Options List (Clean selectable, NO answers revealed) */}
             <div className="space-y-3 pt-4">

@@ -27,6 +27,7 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
   const [selectedExamId, setSelectedExamId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedSection, setSelectedSection] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -97,20 +98,36 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
         if (selectedSection === 'cl' && !sec.includes('lector') && !sec.includes('competencia')) return false;
       }
 
+      // Filter by Category (bloque oficial v3)
+      if (selectedCategory !== 'all' && (q.category ?? 'Sin clasificar') !== selectedCategory) {
+        return false;
+      }
+
       // Filter by Search Query
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
         const matchesNumber = String(q.number).includes(query);
         const matchesStatement = (q.statement || '').toLowerCase().includes(query);
         const matchesTopic = (q.topic || '').toLowerCase().includes(query);
-        if (!matchesNumber && !matchesStatement && !matchesTopic) {
+        const matchesCategory = (q.category || '').toLowerCase().includes(query);
+        if (!matchesNumber && !matchesStatement && !matchesTopic && !matchesCategory) {
           return false;
         }
       }
 
       return true;
     });
-  }, [flatQuestions, selectedExamId, selectedStatus, selectedSection, searchQuery]);
+  }, [flatQuestions, selectedExamId, selectedStatus, selectedSection, selectedCategory, searchQuery]);
+
+  // Categorías disponibles con conteo (para el filtro)
+  const categoryOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    flatQuestions.forEach(({ question: q }) => {
+      const cat = (q.category ?? '').trim() || 'Sin clasificar';
+      map.set(cat, (map.get(cat) ?? 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
+  }, [flatQuestions]);
 
   const showNotification = (type: 'success' | 'error', text: string) => {
     setFeedbackMessage({ type, text });
@@ -311,6 +328,21 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
               <option value="rl">Razonamiento Lógico</option>
               <option value="cl">Competencia Lectora</option>
             </select>
+
+            {/* Category selector (bloque oficial v3) */}
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="text-xs font-semibold bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-gray-700 dark:text-gray-300 outline-none focus:ring-2 focus:ring-emerald-500"
+              title="Filtrar por categoría oficial"
+            >
+              <option value="all">Todas las categorías</option>
+              {categoryOptions.map(([cat, count]) => (
+                <option key={cat} value={cat}>
+                  {cat} ({count})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -429,6 +461,18 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
                     <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
                       {sectionTitle || sectionId}
                     </span>
+
+                    {q.category && (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-semibold truncate max-w-[220px]" title={`Categoría: ${q.category} · Tema: ${q.topic}`}>
+                        {q.category}
+                      </span>
+                    )}
+
+                    {q.confidence === 'low' && (
+                      <span className="text-[11px] px-2 py-0.5 rounded font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300" title="Confianza IA baja: requiere revisión antes de publicar">
+                        confidence: low
+                      </span>
+                    )}
 
                     <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 truncate max-w-[200px]" title={examTitle}>
                       {examTitle}

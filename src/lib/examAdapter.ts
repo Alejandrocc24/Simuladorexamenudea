@@ -1,14 +1,29 @@
-import { Exam, Question, QuestionOption, Section } from '../types';
+import { Exam, Question, QuestionOption, Section, SharedText } from '../types';
 import type { SupabaseExamRow, SupabaseQuestionRow } from './supabase';
+import { normalizeConfidence, normalizeDifficulty } from './jsonClean';
 
-function parsePeriodo(periodo: string | null): { year: number; semester: 1 | 2 | null } {
-  if (!periodo) return { year: new Date().getFullYear(), semester: 1 };
+/**
+ * Parsea `periodo` ("2024-1", "2024", null).
+ * `year` y `semester` pueden ser null (simulacros de institutos):
+ * no se aplica ningún fallback a año actual / semestre 1.
+ */
+function parsePeriodo(periodo: string | null): { year: number | null; semester: 1 | 2 | null } {
+  if (!periodo) return { year: null, semester: null };
   const m = periodo.match(/(\d{4})\s*[-_/]?\s*([12])?/);
-  if (!m) return { year: new Date().getFullYear(), semester: 1 };
+  if (!m) return { year: null, semester: null };
+  const year = Number(m[1]);
   return {
-    year: Number(m[1]) || new Date().getFullYear(),
-    semester: m[2] === '2' ? 2 : 1,
+    year: Number.isFinite(year) ? year : null,
+    semester: m[2] === '2' ? 2 : m[2] === '1' ? 1 : null,
   };
+}
+
+/** Serializa año/semestre (admitiendo null) al formato `periodo` de Supabase. */
+export function toPeriodo(year: number | null, semester: 1 | 2 | null): string | null {
+  if (year == null && semester == null) return null;
+  if (year != null && semester != null) return `${year}-${semester}`;
+  if (year != null) return `${year}`;
+  return null;
 }
 
 function toSectionId(area: string): string {
@@ -48,19 +63,41 @@ function normalizeImages(raw: unknown): Question['assets'] {
       }
       if (item && typeof item === 'object') {
         const o = item as Record<string, unknown>;
-        const url = String(o['imagePath'] ?? o['croppedImage'] ?? o['url'] ?? o['content'] ?? '');
+        const url = String(o['imagePath'] ?? o['croppedImage'] ?? o['base64'] ?? o['url'] ?? o['content'] ?? o['image'] ?? '');
         if (!url) return null;
+        const target = typeof o['target'] === 'string' ? (o['target'] as string) : undefined;
         return {
           id: String(o['id'] ?? `img-${idx}`),
           type: 'image' as const,
+          target,
           imagePath: url,
-          croppedImage: url.startsWith('data:') ? url : undefined,
+          croppedImage: url.startsWith('data:') ? url : typeof o['croppedImage'] === 'string' ? (o['croppedImage'] as string) : undefined,
           description: typeof o['description'] === 'string' ? (o['description'] as string) : undefined,
         };
       }
       return null;
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
+}
+
+function normalizeSharedTexts(raw: unknown): SharedText[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+    .map((s, idx) => {
+      const appliesRaw = s['appliesToQuestions'] ?? s['appliesTo'] ?? [];
+      const appliesToQuestions = Array.isArray(appliesRaw)
+        ? appliesRaw.map(Number).filter((n) => Number.isFinite(n))
+        : [];
+      return {
+        id: String(s['id'] ?? `texto-${idx + 1}`),
+        title: String(s['title'] ?? s['titulo'] ?? ''),
+        text: String(s['text'] ?? s['content'] ?? s['contenido'] ?? ''),
+        content: typeof s['content'] === 'string' ? (s['content'] as string) : undefined,
+        appliesToQuestions,
+      };
+    })
+    .filter((s) => s.text.length > 0 || s.title.length > 0);
 }
 
 export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string): Question {
@@ -70,7 +107,11 @@ export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string)
     ? (rawAnswer as 'A' | 'B' | 'C' | 'D')
     : null;
   const hasValidOptions = options.length >= 4 && options.slice(0, 4).every(o => o.text.length > 0);
-  const published = Boolean(q.tiene_respuesta_oficial) && correctAnswer !== null && hasValidOptions;
+  const confidence = normalizeConfidence(q.confidence);
+  // `confidence = low` queda pendiente de revisión hasta que el admin la apruebe,
+  // aunque traiga respuesta oficial.
+  const lowConfidence = confidence === 'low';
+  const published = Boolean(q.tiene_respuesta_oficial) && correctAnswer !== null && hasValidOptions && !lowConfidence;
 
   return {
     id: q.id,
@@ -83,10 +124,16 @@ export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string)
     assets: normalizeImages(q.imagenes),
     explanation: q.explicacion_md ?? '',
     topic: q.tema ?? (toSectionId(q.area) === 'competencia-lectora' ? 'Competencia Lectora' : 'Razonamiento Lógico'),
-    difficulty: 'medium',
+    category: typeof q.category === 'string' && q.category ? q.category : undefined,
+    confidence: confidence ?? (typeof q.confidence === 'string' && q.confidence ? q.confidence : undefined),
+    difficulty: normalizeDifficulty(q.difficulty),
     status: published ? 'PUBLISHED' : 'NEEDS_REVIEW',
     needsReview: !published,
-    reviewNotes: published ? '' : 'Pregunta importada desde JSON; requiere respuesta oficial y 4 opciones completas.',
+    reviewNotes: published
+      ? ''
+      : lowConfidence
+        ? 'Importada con confidence=low: pendiente de revisión por el administrador antes de publicar.'
+        : 'Pregunta importada desde JSON; requiere respuesta oficial y 4 opciones completas.',
     source: {
       fileId: q.exam_id,
       originalFileName: `${examTitle}.json`,
@@ -132,7 +179,7 @@ export function supabaseToExams(
       year,
       semester,
       sections: Array.from(sectionsMap.values()).filter((s) => s.questions.length > 0),
-      sharedTexts: [],
+      sharedTexts: normalizeSharedTexts(e.shared_texts ?? e.sharedTexts),
       sourceFileId: e.id,
       sourceFileName: `${e.nombre ?? 'examen'}.json`,
     };

@@ -30,3 +30,32 @@ body {
   max-width: 100%;
   height: auto;
 }
+
+/* Explicaciones y textos largos: sin recortes, con buen ritmo vertical */
+.prose-math {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Listas con sangría (incluidas las anidadas de las explicaciones) */
+.prose-math ul,
+.prose-math ol {
+  padding-left: 0;
+}
+
+.prose-math li > ul,
+.prose-math li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Tips `> ...` destacados también cuando el blockquote trae varios párrafos */
+.prose-math blockquote p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Código inline largo no rompe el layout */
+.prose-math code {
+  overflow-wrap: anywhere;
+}
