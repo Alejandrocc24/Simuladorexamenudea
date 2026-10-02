@@ -76,6 +76,14 @@ Ejecutar `supabase/migration_v3b_constraints.sql`: permite `periodo` nulo, ampl�
 
 Ejecutar `supabase/migration_v4_user_moderation.sql`: crea `banned_users` y las funciones `admin_user_activity` (última conexión real desde `auth.users`), `am_i_banned`, `admin_ban_user`, `admin_unban_user` y `admin_delete_user`. Sin esta migración, la pestaña Usuarios solo gestiona roles. Vetar bloquea el ingreso sin borrar nada; Eliminar borra perfil, intentos y datos de duelos pero la persona puede volver a registrarse. Con casillas puedes vetar o eliminar en lote (p. ej. inactivos); la cuenta de acceso (`auth.users`) solo se elimina desde el Dashboard de Supabase → Authentication → Users.
 
+### Migración Supabase v5 (reportes de preguntas)
+
+Ejecutar `supabase/migration_v5_question_reports.sql`: crea `question_reports` y las funciones `submit_question_report`, `admin_list_reports` y `admin_resolve_report`. Los usuarios reportan desde Práctica/Simulacro (motivo + texto libre); el admin los ve en la pestaña Reportes con contador de pendientes y salto directo a revisar la pregunta.
+
+### Migración Supabase v6 (reparación de duelos 1v1)
+
+Ejecutar `supabase/migration_v6_duel_rooms.sql`: crea las funciones `join_room`/`start_room`/`finish_room`/`leave_room` (faltaban: por eso se creaba la sala pero unirse/iniciar no hacía nada), asegura columnas (`joined_at`, `max_participants`, etc.), abre RLS para logueados en las 3 tablas de duelo, activa realtime y finaliza salas atoradas.
+
 ### Migración Supabase v4b (nickname editable + admin lo ve)
 
 Ejecutar `supabase/migration_v4b_nickname.sql`: agrega `profiles.nickname` (único, con `update_my_nickname()` que valida, evita duplicados y omite las RLS que bloquean el `UPDATE` directo). El nombre de registro (`nombre`) no se toca. La página /perfil separa ambos campos y la pestaña Usuarios muestra nombre, @nickname y correo (con fallback si la migración aún no se aplicó).

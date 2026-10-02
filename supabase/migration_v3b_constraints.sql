@@ -184,3 +184,35 @@ begin
       on delete cascade;
   end if;
 end $$;
+
+-- 2e. rooms.host_id → anulable + ON DELETE SET NULL.
+-- Si se elimina a un usuario que creó salas de duelo, la sala se conserva
+-- para los demás participantes quedando sin anfitrión (la app ya trata
+-- host_id nulo como "sin privilegios de anfitrión").
+alter table public.rooms alter column host_id drop not null;
+
+do $$
+declare r record;
+begin
+  for r in
+    select c.conname from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    where c.conrelid = 'public.rooms'::regclass
+      and c.contype = 'f'
+      and c.confrelid = 'public.profiles'::regclass
+      and a.attname = 'host_id'
+  loop
+    execute format('alter table public.rooms drop constraint %I', r.conname);
+  end loop;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.rooms'::regclass
+      and conname = 'rooms_host_id_fkey'
+  ) then
+    alter table public.rooms
+      add constraint rooms_host_id_fkey
+      foreign key (host_id)
+      references public.profiles (id)
+      on delete set null;
+  end if;
+end $$;

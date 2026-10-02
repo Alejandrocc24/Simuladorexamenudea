@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useAuth } from '../context/AuthContext';
-import { FileUp, CheckCircle, AlertTriangle, Settings, FileJson, Trash2, ShieldAlert, LogIn, Users } from 'lucide-react';
+import { FileUp, CheckCircle, AlertTriangle, Settings, FileJson, Trash2, ShieldAlert, LogIn, Users, Inbox } from 'lucide-react';
 import { BlockMath } from 'react-katex';
 import { cn } from './Layout';
 
 import { JsonImporter } from './JsonImporter';
 import { QuestionsManager } from './QuestionsManager';
+import { ReportsManager } from './ReportsManager';
 import { ConfirmModal } from './ConfirmModal';
 import { QuestionEditor } from './QuestionEditor';
 import { UserManagement } from './UserManagement';
@@ -16,7 +17,8 @@ export function Admin() {
   const { exams, updateQuestion, deleteQuestion, deleteExam, clearAllExams } = useStore();
   const { user, isAdmin, loading: authLoading } = useAuth();
 
-  const [adminSection, setAdminSection] = useState<'manage-questions' | 'import-review' | 'users'>('manage-questions');
+  const [adminSection, setAdminSection] = useState<'manage-questions' | 'import-review' | 'users' | 'reports'>('manage-questions');
+  const [reportsCount, setReportsCount] = useState(0);
 
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -133,11 +135,37 @@ export function Admin() {
             <Users className="w-4 h-4 text-amber-500" />
             <span>Usuarios</span>
           </button>
+
+          <button
+            onClick={() => setAdminSection('reports')}
+            className={cn(
+              'px-4 py-2.5 rounded-lg transition-all flex items-center gap-2',
+              adminSection === 'reports'
+                ? 'bg-white dark:bg-gray-700 text-amber-700 dark:text-amber-300 shadow-xs font-black'
+                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+            )}
+          >
+            <Inbox className="w-4 h-4 text-amber-500" />
+            <span>Reportes</span>
+            {reportsCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
+                {reportsCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
       {adminSection === 'users' ? (
         <UserManagement currentUserId={user?.id} />
+      ) : adminSection === 'reports' ? (
+        <ReportsManager
+          onCountChange={setReportsCount}
+          onReviewQuestion={(qId) => {
+            setActiveQuestionId(qId);
+            setAdminSection('import-review');
+          }}
+        />
       ) : adminSection === 'manage-questions' ? (
         <QuestionsManager
           onSelectQuestionForReview={(qId) => {

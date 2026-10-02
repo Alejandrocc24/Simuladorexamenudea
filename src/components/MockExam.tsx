@@ -24,6 +24,7 @@ import {
 import { MathRenderer } from './MathRenderer';
 import { SharedContextBox } from './SharedContextBox';
 import { MainQuestionAssets, OptionsAssetsBlock, hasSharedContext, sharedAssetsOf } from './QuestionAssets';
+import { ReportQuestion } from './ReportQuestion';
 import { ConfirmModal } from './ConfirmModal';
 import { cn } from './Layout';
 import { BlockMath } from 'react-katex';
@@ -547,6 +548,7 @@ export function MockExam() {
                 <Flag className={cn("w-3.5 h-3.5", isFlagged && "fill-amber-500 text-amber-500")} />
                 <span>{isFlagged ? 'Marcada' : 'Marcar para revisar'}</span>
               </button>
+              <ReportQuestion questionId={currentQ.id} questionNumber={currentQ.number} />
             </div>
 
             {/* Shared Context Text if present */}

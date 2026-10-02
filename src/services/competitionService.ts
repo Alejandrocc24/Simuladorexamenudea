@@ -288,6 +288,9 @@ export async function cleanupStaleMatches() {
   try {
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     await supabase.from('rooms').update({ estado: 'finalizada' }).eq('estado', 'esperando').lt('created_at', fifteenMinutesAgo);
+    // Salas en curso abandonadas (nadie las finalizó): se cierran tras 3h.
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    await supabase.from('rooms').update({ estado: 'finalizada' }).eq('estado', 'en_curso').lt('created_at', threeHoursAgo);
   } catch (error) {
     console.warn('cleanupStaleMatches:', error);
   }

@@ -10,6 +10,7 @@ import { cn } from './Layout';
 import { MathRenderer } from './MathRenderer';
 import { SharedContextBox } from './SharedContextBox';
 import { MainQuestionAssets, OptionsAssetsBlock, hasSharedContext, sharedAssetsOf } from './QuestionAssets';
+import { ReportQuestion } from './ReportQuestion';
 import { Whiteboard } from './Whiteboard';
 import { buildCategoryTree, filterByCategoryTopic } from '../lib/taxonomy';
 
@@ -524,6 +525,9 @@ export function Practice() {
               "text-red-700 bg-red-100"
             )}>
               {currentQuestion.difficulty === 'easy' ? 'Fácil' : currentQuestion.difficulty === 'medium' ? 'Media' : 'Difícil'}
+            </span>
+            <span className="ml-auto">
+              <ReportQuestion questionId={currentQuestion.id} questionNumber={currentQuestion.number} />
             </span>
           </div>
           

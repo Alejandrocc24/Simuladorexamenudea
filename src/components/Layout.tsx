@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut, User } from 'lucide-react';
+import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut, User, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -46,6 +46,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
   };
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // Sidebar plegable (desktop): gana amplitud en todas las vistas. Persiste.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('simulador_sidebar') === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      try {
+        localStorage.setItem('simulador_sidebar', prev ? 'expanded' : 'collapsed');
+      } catch {
+        // sin almacenamiento: igual se pliega en la sesión
+      }
+      return !prev;
+    });
+  };
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, adminOnly: false },
@@ -205,14 +224,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
       </div>
 
-      {/* Sidebar Navigation (desktop) */}
+      {/* Sidebar Navigation (desktop): plegable a riel de iconos */}
       <aside className={cn(
-        "w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-col shrink-0",
-        focusMode ? "hidden" : "hidden md:flex"
+        "bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 transition-[width] duration-200",
+        focusMode ? "hidden" : "hidden md:flex",
+        sidebarCollapsed ? "w-[76px]" : "w-64"
       )}>
-        <div className="p-6 hidden md:block">
-          <h1 className="text-2xl font-bold text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Plataforma de preparación</p>
+        <div className={cn("hidden md:flex items-center gap-2", sidebarCollapsed ? "p-4 justify-center" : "p-6 pb-2 justify-between")}>
+          {!sidebarCollapsed && (
+            <div>
+              <h1 className="text-2xl font-bold text-[#005F2B] dark:text-emerald-400">Simulador UdeA</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Plataforma de preparación</p>
+            </div>
+          )}
+          <button
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expandir menú' : 'Esconder menú (más amplitud)'}
+            className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+          >
+            {sidebarCollapsed ? <ChevronsRight className="w-5 h-5" /> : <ChevronsLeft className="w-5 h-5" />}
+          </button>
         </div>
         <nav className="flex-1 px-4 py-4 md:py-0 space-y-2 mb-4">
           {navItems.map((item) => {
@@ -222,37 +253,45 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 to={item.path}
+                title={sidebarCollapsed ? item.name : undefined}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+                  sidebarCollapsed && "justify-center px-0",
                   isActive 
                     ? "bg-[#005F2B]/10 text-[#005F2B] dark:bg-[#005F2B]/30 dark:text-emerald-300 font-bold" 
                     : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                 )}
               >
-                <Icon className="w-5 h-5" />
-                {item.name}
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && item.name}
               </Link>
             )
           })}
         </nav>
 
         {/* User Profile Card */}
-        <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
+        <div className={cn("p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40", sidebarCollapsed && "px-2")}>
           {user ? (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
+            <div className={cn("flex items-center justify-between gap-2", sidebarCollapsed && "flex-col")}>
+              <Link
+                to="/perfil"
+                title={profile?.displayName || user.email || 'Mi perfil'}
+                className={cn("flex items-center gap-2.5 min-w-0", sidebarCollapsed && "justify-center")}
+              >
                 <div className="w-9 h-9 rounded-xl bg-[#005F2B] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
                   {profile?.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
-                    {profile?.displayName || user.email}
-                  </p>
-                  <p className="text-[11px] font-semibold text-[#005F2B] dark:text-emerald-400">
-                    ⚡ {profile?.rating || 1000} ELO
-                  </p>
-                </div>
-              </div>
+                {!sidebarCollapsed && (
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-gray-900 dark:text-white truncate hover:underline">
+                      {profile?.displayName || user.email}
+                    </p>
+                    <p className="text-[11px] font-semibold text-[#005F2B] dark:text-emerald-400">
+                      ⚡ {profile?.rating || 1000} ELO
+                    </p>
+                  </div>
+                )}
+              </Link>
               <button
                 onClick={handleLogout}
                 className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
