@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Question, PracticeSession } from '../types';
 import { BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
-import { CheckCircle2, XCircle, ChevronRight, ChevronDown, ChevronUp, HelpCircle, ArrowLeft, Brain, Award, RotateCcw, Home, BookOpen, PenTool } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronRight, ChevronDown, ChevronUp, HelpCircle, ArrowLeft, Brain, Award, RotateCcw, Home, BookOpen, PenTool, Shuffle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from './Layout';
 import { MathRenderer } from './MathRenderer';
@@ -13,6 +13,13 @@ import { MainQuestionAssets, OptionsAssetsBlock, hasSharedContext, sharedAssetsO
 import { ReportQuestion } from './ReportQuestion';
 import { Whiteboard } from './Whiteboard';
 import { buildCategoryTree, filterByCategoryTopic } from '../lib/taxonomy';
+import { assembleSequential, assembleShuffled } from '../lib/sessionGroups';
+import {
+  deleteStudySession,
+  loadStudySession,
+  resolveSessionQuestions,
+  saveStudySession,
+} from '../services/studySessionService';
 
 export type PracticeComponent = 'razonamiento-logico' | 'competencia-lectora';
 
@@ -40,6 +47,9 @@ export function Practice() {
   const [selectedComponent, setSelectedComponent] = useState<PracticeComponent | ''>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedTopic, setSelectedTopic] = useState<string>('all');
+  // Orden aleatorio (anti-memorización de posiciones); se aplica al comenzar.
+  const [shuffleOrder, setShuffleOrder] = useState(true);
+  const [playList, setPlayList] = useState<Question[] | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
   // Pizarra lateral para explicar en grupo: oculta el sidebar y divide la pantalla
@@ -65,7 +75,10 @@ export function Practice() {
     setSelectedComponent('');
     setSelectedCategory('all');
     setSelectedTopic('all');
+    setPlayList(null);
     setIsFinished(false);
+    // La sesión guardada se conserva: al volver se ofrece retomarla.
+    void loadResume();
   };
 
   // Al salir de la vista, restaurar el sidebar
@@ -84,27 +97,88 @@ export function Practice() {
   const [sessionStartTime, setSessionStartTime] = useState<number>(0);
   const [accumulatedAnswers, setAccumulatedAnswers] = useState<Record<string, 'A' | 'B' | 'C' | 'D'>>({});
 
-  // Preguntas publicadas/aprobadas agrupadas por componente, de todos los exámenes
+  // Preguntas publicadas de exámenes PUBLICADOS (todo o nada), por componente.
   const publishedByComponent = useMemo(() => {
     const map: Record<PracticeComponent, Question[]> = {
       'razonamiento-logico': [],
       'competencia-lectora': [],
     };
-    exams.forEach((e) =>
+    exams.forEach((e) => {
+      if (!e.published) return;
       e.sections.forEach((s) => {
         if (s.id === 'razonamiento-logico' || s.id === 'competencia-lectora') {
           map[s.id].push(
             ...s.questions.filter((q) => q.status === 'PUBLISHED' || q.status === 'APPROVED')
           );
         }
-      })
-    );
+      });
+    });
     return map;
   }, [exams]);
 
-  const questions = selectedComponent
+  // Textos compartidos por examen (para armar grupos que nunca se parten).
+  const sharedByExam = useMemo(
+    () => new Map(exams.filter((e) => e.published).map((e) => [e.id, e.sharedTexts ?? []])),
+    [exams]
+  );
+
+  // Sesión guardada para retomar (banner en la configuración).
+  const [resumeInfo, setResumeInfo] = useState<{
+    total: number;
+    answered: number;
+    expiredNote: string | null;
+  } | null>(null);
+  const [resumeData, setResumeData] = useState<{
+    questions: Question[];
+    answers: Record<string, 'A' | 'B' | 'C' | 'D'>;
+    index: number;
+  } | null>(null);
+  const [loadingResume, setLoadingResume] = useState(false);
+
+  const loadResume = async () => {
+    if (!user || isLoadingExams) return;
+    setLoadingResume(true);
+    try {
+      const saved = await loadStudySession(user.id, 'practica');
+      if (!saved || saved.questionIds.length === 0) {
+        setResumeInfo(null);
+        setResumeData(null);
+        return;
+      }
+      const resolved = resolveSessionQuestions(saved.questionIds, exams);
+      if (!resolved) {
+        await deleteStudySession(user.id, 'practica');
+        setResumeData(null);
+        setResumeInfo({ total: 0, answered: 0, expiredNote: 'Tu sesión guardada ya no está disponible (el contenido se despublicó).' });
+        return;
+      }
+      const clamped = Math.max(0, Math.min(saved.currentIndex, resolved.length - 1));
+      setResumeData({ questions: resolved, answers: saved.answers ?? {}, index: clamped });
+      setResumeInfo({
+        total: resolved.length,
+        answered: Object.keys(saved.answers ?? {}).length,
+        expiredNote: null,
+      });
+    } catch {
+      setResumeInfo(null);
+      setResumeData(null);
+    } finally {
+      setLoadingResume(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || isLoadingExams || playList) return;
+    void loadResume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, isLoadingExams, exams]);
+
+  const poolQuestions = selectedComponent
     ? filterByCategoryTopic(publishedByComponent[selectedComponent], selectedCategory, selectedTopic)
     : [];
+  // En sesión se usa la lista fijada al comenzar (mezclada o no); fuera de
+  // sesión, el pool filtrado para conteos y vista previa.
+  const questions = playList ?? poolQuestions;
   const currentQuestion: Question | undefined = questions[currentQuestionIndex];
   const componentInfo = COMPONENTS.find((c) => c.id === selectedComponent);
 
@@ -129,11 +203,21 @@ export function Practice() {
     ? exams.find((e) => e.sections.some((s) => s.questions.some((q) => q.id === currentQuestion.id)))
     : undefined;
 
+  // Orden de sesión para las etiquetas de contexto (posiciones, Regla 6).
+  const sessionOrder = useMemo(
+    () => questions.map((q) => ({ examId: q.examId, number: q.number })),
+    [questions]
+  );
+
   const handleStart = () => {
     if (!selectedComponent || questions.length === 0) return;
-    const sessionId = `practice_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    // Armar por UNIDADES (grupos nunca partidos), mezcladas o secuenciales.
+    const ordered = shuffleOrder
+      ? assembleShuffled(questions, sharedByExam)
+      : assembleSequential(questions, sharedByExam);
+    setPlayList(ordered);
     const now = Date.now();
-    setActiveSessionId(sessionId);
+    setActiveSessionId(`practice_${now}_${Math.random().toString(36).substring(2, 6)}`);
     setSessionStartTime(now);
     setAccumulatedAnswers({});
     setCurrentQuestionIndex(0);
@@ -141,9 +225,21 @@ export function Practice() {
     setIsResolved(false);
     setShowExplanation(false);
     setIsFinished(false);
+    setResumeInfo(null);
+    setResumeData(null);
+
+    if (user) {
+      void saveStudySession(user.id, {
+        modo: 'practica',
+        questionIds: ordered.map((q) => q.id),
+        answers: {},
+        currentIndex: 0,
+        endsAt: null,
+      }).catch(() => {});
+    }
 
     const newSession: PracticeSession = {
-      id: sessionId,
+      id: `practice_${now}_${Math.random().toString(36).substring(2, 6)}`,
       userId: user?.id,
       examId: 'componentes',
       sectionId: selectedComponent,
@@ -154,6 +250,62 @@ export function Practice() {
     };
     addPracticeSession(newSession, user?.id);
   };
+
+  const handleResume = () => {
+    if (!resumeData) return;
+    const { questions: list, answers, index } = resumeData;
+    setPlayList(list);
+    setAccumulatedAnswers(answers);
+    const target = list[Math.max(0, Math.min(index, list.length - 1))];
+    const saved = target ? answers[target.id] ?? null : null;
+    setCurrentQuestionIndex(Math.max(0, Math.min(index, list.length - 1)));
+    setSelectedOption(saved);
+    setIsResolved(saved !== null);
+    setShowExplanation(saved !== null);
+    setIsFinished(false);
+    setResumeInfo(null);
+    setResumeData(null);
+    const first = list[0];
+    if (first) {
+      const comp = first.sectionId === 'competencia-lectora' ? 'competencia-lectora' : 'razonamiento-logico';
+      setSelectedComponent(comp as PracticeComponent);
+    }
+    setActiveSessionId(`practice_resumed_${Date.now()}`);
+    setSessionStartTime(Date.now());
+  };
+
+  const handleDiscardResume = async () => {
+    if (user) {
+      try {
+        await deleteStudySession(user.id, 'practica');
+      } catch {
+        // ignorar
+      }
+    }
+    setResumeInfo(null);
+    setResumeData(null);
+  };
+
+  // Persistir progreso de la sesión en curso (orden + respuestas + índice).
+  useEffect(() => {
+    if (!user || !playList || isFinished) return;
+    const t = setTimeout(() => {
+      void saveStudySession(user.id, {
+        modo: 'practica',
+        questionIds: playList.map((q) => q.id),
+        answers: accumulatedAnswers,
+        currentIndex: currentQuestionIndex,
+        endsAt: null,
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [user, playList, accumulatedAnswers, currentQuestionIndex, isFinished]);
+
+  // Al terminar, la sesión guardada se elimina.
+  useEffect(() => {
+    if (!isFinished || !user) return;
+    void deleteStudySession(user.id, 'practica').catch(() => {});
+  }, [isFinished, user]);
 
   const handleResolve = () => {
     if (!selectedOption || !currentQuestion) return;
@@ -300,6 +452,37 @@ export function Practice() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-6">
           Elige Razonamiento Lógico o Competencia Lectora. Las preguntas se reúnen de todos los exámenes importados.
         </p>
+        {resumeInfo?.expiredNote && (
+          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs rounded-xl font-medium">
+            {resumeInfo.expiredNote}
+          </div>
+        )}
+        {resumeData && resumeInfo && !resumeInfo.expiredNote && (
+          <div className="mb-4 p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+                Tienes una sesión en curso
+              </p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                {resumeInfo.answered}/{resumeInfo.total} respondidas · mismo orden en cualquier dispositivo
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleResume}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"
+              >
+                Retomar
+              </button>
+              <button
+                onClick={handleDiscardResume}
+                className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold hover:bg-gray-50"
+              >
+                Descartar
+              </button>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {COMPONENTS.map((c) => {
             const count = publishedByComponent[c.id].length;
@@ -423,6 +606,20 @@ export function Practice() {
             ? `Comenzar Práctica (${questions.length} preguntas)`
             : 'Comenzar Práctica'}
         </button>
+
+        <button
+          onClick={() => setShuffleOrder((v) => !v)}
+          title="Mezclar el orden evita memorizar posiciones"
+          className={cn(
+            'w-full mt-2 py-2.5 rounded-xl text-xs font-bold border-2 transition-colors flex items-center justify-center gap-2',
+            shuffleOrder
+              ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
+              : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+          )}
+        >
+          <Shuffle className="w-4 h-4" />
+          {shuffleOrder ? 'Orden aleatorio: activado' : 'Orden aleatorio: desactivado'}
+        </button>
       </div>
     );
   }
@@ -535,6 +732,8 @@ export function Practice() {
           <SharedContextBox
             sharedTexts={parentExam?.sharedTexts}
             questionNumber={currentQuestion.number}
+            examId={currentQuestion.examId}
+            sessionOrder={sessionOrder}
             sharedImages={sharedAssetsOf(currentQuestion.assets)}
           />
           

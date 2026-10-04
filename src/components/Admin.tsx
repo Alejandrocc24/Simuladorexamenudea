@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useAuth } from '../context/AuthContext';
-import { FileUp, CheckCircle, AlertTriangle, Settings, FileJson, Trash2, ShieldAlert, LogIn, Users, Inbox } from 'lucide-react';
+import { FileUp, CheckCircle, AlertTriangle, Settings, FileJson, Trash2, ShieldAlert, LogIn, Users, Inbox, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
 import { BlockMath } from 'react-katex';
 import { cn } from './Layout';
 
@@ -14,11 +14,39 @@ import { QuestionEditor } from './QuestionEditor';
 import { UserManagement } from './UserManagement';
 
 export function Admin() {
-  const { exams, updateQuestion, deleteQuestion, deleteExam, clearAllExams } = useStore();
+  const { exams, updateQuestion, deleteQuestion, deleteExam, clearAllExams, renameExam } = useStore();
   const { user, isAdmin, loading: authLoading } = useAuth();
 
   const [adminSection, setAdminSection] = useState<'manage-questions' | 'import-review' | 'users' | 'reports'>('manage-questions');
   const [reportsCount, setReportsCount] = useState(0);
+  const [renamingExamId, setRenamingExamId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  // Acordeón del paso 2: colapsado por defecto salvo el más reciente.
+  const [expandedExams, setExpandedExams] = useState<Set<string> | null>(() => {
+    try {
+      const raw = localStorage.getItem('admin_expanded_exams');
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      // sin almacenamiento: se usa el valor por defecto
+    }
+    return null;
+  });
+
+  const isExpanded = (examId: string, isFirst: boolean) =>
+    expandedExams ? expandedExams.has(examId) : isFirst;
+
+  const toggleExpanded = (examId: string, isFirst: boolean) => {
+    const next = new Set(expandedExams ?? (exams[0] ? [exams[0].id] : []));
+    if (isExpanded(examId, isFirst)) next.delete(examId);
+    else next.add(examId);
+    setExpandedExams(next);
+    try {
+      localStorage.setItem('admin_expanded_exams', JSON.stringify(Array.from(next)));
+    } catch {
+      // ignorar
+    }
+  };
 
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -246,17 +274,102 @@ export function Admin() {
                   </div>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2 space-y-3">
-                  {exams.map((exam) => (
+                  {exams.map((exam, examIdx) => (
                     <div key={exam.id} className="mb-3 bg-gray-50/50 dark:bg-gray-900/30 rounded-xl p-2 border border-gray-100 dark:border-gray-800">
-                      <div className="flex items-center justify-between mb-2 px-1">
-                        <div className="min-w-0 pr-2">
-                          <h4 className="font-bold text-xs uppercase text-gray-700 dark:text-gray-300 truncate" title={exam.title}>
-                            {exam.title}
-                          </h4>
-                          <span className="text-[10px] text-gray-400">
-                            {exam.sections.reduce((acc, s) => acc + s.questions.length, 0)} preguntas
-                          </span>
+                      <div className="flex items-center justify-between mb-1 px-1 gap-1">
+                        <button
+                          onClick={() => toggleExpanded(exam.id, examIdx === 0)}
+                          title={isExpanded(exam.id, examIdx === 0) ? 'Contraer' : 'Expandir'}
+                          className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0"
+                        >
+                          {isExpanded(exam.id, examIdx === 0) ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                        <div className="min-w-0 pr-1 flex-1">
+                          {renamingExamId === exam.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                value={renameDraft}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    void (async () => {
+                                      try {
+                                        await renameExam(exam.id, renameDraft);
+                                        setRenamingExamId(null);
+                                        setRenameError(null);
+                                      } catch (err) {
+                                        setRenameError(err instanceof Error ? err.message : 'No se pudo renombrar.');
+                                      }
+                                    })();
+                                  }
+                                  if (e.key === 'Escape') setRenamingExamId(null);
+                                }}
+                                autoFocus
+                                className="w-full text-xs p-1 bg-white dark:bg-gray-800 border border-emerald-300 dark:border-emerald-700 rounded font-medium text-gray-900 dark:text-white outline-none"
+                              />
+                              <button
+                                onClick={() => {
+                                  void (async () => {
+                                    try {
+                                      await renameExam(exam.id, renameDraft);
+                                      setRenamingExamId(null);
+                                      setRenameError(null);
+                                    } catch (err) {
+                                      setRenameError(err instanceof Error ? err.message : 'No se pudo renombrar.');
+                                    }
+                                  })();
+                                }}
+                                className="p-1 text-emerald-600 hover:text-emerald-800 flex-shrink-0"
+                                title="Guardar nombre"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setRenamingExamId(null)}
+                                className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                                title="Cancelar"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="font-bold text-xs uppercase text-gray-700 dark:text-gray-300 truncate" title={exam.title}>
+                                {exam.title}
+                              </h4>
+                              <span className="text-[10px] text-gray-400">
+                                {exam.sections.reduce((acc, s) => acc + s.questions.length, 0)} preguntas
+                                {' · '}
+                                {exam.sections.flatMap((s) => s.questions).filter((q) => q.status === 'NEEDS_REVIEW').length} en revisión
+                              </span>
+                              {exam.published ? (
+                                <span className="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold" title="Todas aprobadas: visible en práctica y simulacro">
+                                  Publicado
+                                </span>
+                              ) : (
+                                <span className="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold" title="Tiene pendientes: ninguna se muestra hasta completar">
+                                  Sin publicar
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {renameError && renamingExamId === exam.id && (
+                            <p className="text-[10px] text-red-500 font-semibold">{renameError}</p>
+                          )}
                         </div>
+                        {renamingExamId !== exam.id && (
+                          <button
+                            onClick={() => {
+                              setRenameDraft(exam.title);
+                              setRenameError(null);
+                              setRenamingExamId(exam.id);
+                            }}
+                            className="text-xs text-gray-400 hover:text-emerald-600 px-1.5 py-1 rounded font-semibold transition-colors flex-shrink-0"
+                            title="Renombrar examen"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setConfirmModal({
@@ -280,7 +393,8 @@ export function Admin() {
                           Eliminar
                         </button>
                       </div>
-                      {exam.sections
+                      {isExpanded(exam.id, examIdx === 0) &&
+                      exam.sections
                         .flatMap((s) => s.questions)
                         .map((q, idx) => (
                           <div key={`${q.id}-${idx}`} className="flex items-center gap-1 w-full min-w-0 my-0.5">

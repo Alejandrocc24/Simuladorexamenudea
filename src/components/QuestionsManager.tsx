@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../store/useStore';
+import { supabase } from '../lib/supabase';
+import { statementHash } from '../lib/jsonClean';
 import { Question } from '../types';
 import { 
   Trash2, 
@@ -11,7 +13,8 @@ import {
   CheckSquare, 
   Square,
   BookOpen,
-  Edit3
+  Edit3,
+  Fingerprint
 } from 'lucide-react';
 import { MathRenderer } from './MathRenderer';
 import { cn } from './Layout';
@@ -22,7 +25,7 @@ interface QuestionsManagerProps {
 }
 
 export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManagerProps) {
-  const { exams, deleteQuestion, deleteExam } = useStore();
+  const { exams, deleteQuestion, deleteExam, fetchExams } = useStore();
 
   const [selectedExamId, setSelectedExamId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -30,6 +33,7 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
+  const [hashRunning, setHashRunning] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   // In-app Confirm Modal State (replaces blocked window.confirm)
@@ -229,6 +233,31 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
   const totalCount = flatQuestions.length;
   const reviewCount = flatQuestions.filter(q => q.question.status === 'NEEDS_REVIEW').length;
   const approvedCount = flatQuestions.filter(q => q.question.status === 'APPROVED' || q.question.status === 'PUBLISHED').length;
+  const missingHashCount = flatQuestions.filter(q => !q.question.statementHash).length;
+
+  // Backfill de hashes para preguntas importadas antes de la migración v3c
+  // (una sola vez; así los próximos imports detectan duplicados viejos).
+  const runHashBackfill = async () => {
+    const missing = flatQuestions.filter(q => !q.question.statementHash && q.question.statement.trim());
+    if (missing.length === 0) return;
+    setHashRunning(true);
+    try {
+      const BATCH = 50;
+      for (let i = 0; i < missing.length; i += BATCH) {
+        await Promise.all(
+          missing.slice(i, i + BATCH).map(({ question: q }) =>
+            supabase.from('questions').update({ statement_hash: statementHash(q.statement) }).eq('id', q.id)
+          )
+        );
+      }
+      await fetchExams();
+      showNotification('success', `Hashes generados para ${missing.length} pregunta(s). Los próximos imports detectarán duplicados.`);
+    } catch (err) {
+      showNotification('error', 'No se pudieron generar los hashes (¿aplicaste la migración v3c?).');
+    } finally {
+      setHashRunning(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -373,6 +402,17 @@ export function QuestionsManager({ onSelectQuestionForReview }: QuestionsManager
           </div>
 
           <div className="flex items-center gap-2">
+            {missingHashCount > 0 && (
+              <button
+                onClick={runHashBackfill}
+                disabled={hashRunning}
+                title="Calcula el hash de duplicados para preguntas importadas antes de la migración v3c (una sola vez)"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-xs transition-colors disabled:opacity-50"
+              >
+                <Fingerprint className="w-3.5 h-3.5" />
+                {hashRunning ? 'Generando...' : `Generar hashes (${missingHashCount})`}
+              </button>
+            )}
             {selectedQuestionIds.size > 0 && (
               <button
                 onClick={handleBulkDelete}

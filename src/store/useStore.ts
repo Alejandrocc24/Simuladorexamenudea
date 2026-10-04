@@ -10,6 +10,7 @@ import {
 } from '../services/sessionService';
 import { supabase, formatDbError } from '../lib/supabase';
 import { supabaseToExams } from '../lib/examAdapter';
+import { statementHash } from '../lib/jsonClean';
 
 interface AppState {
   exams: Exam[];
@@ -19,6 +20,7 @@ interface AppState {
   setExams: (exams: Exam[]) => void;
   fetchExams: () => Promise<void>;
   addExam: (exam: Exam) => Promise<void>;
+  renameExam: (examId: string, title: string) => Promise<void>;
   updateQuestion: (examId: string, sectionId: string, questionId: string, updates: Partial<Question>) => Promise<void>;
   deleteExam: (examId: string) => Promise<void>;
   clearAllExams: () => Promise<void>;
@@ -38,32 +40,36 @@ interface AppState {
   setFocusMode: (value: boolean) => void;
 }
 
-// Data validation: ensure PUBLISHED questions have exactly 4 valid options and non-null correctAnswer
+// Data validation: ensure PUBLISHED questions have exactly 4 valid options and non-null correctAnswer.
+// Además aplica la regla todo-o-nada: `published` solo si TODAS están aprobadas/publicadas.
 function sanitizeAndValidateExam(exam: Exam): Exam {
+  const sections = exam.sections.map((sec) => ({
+    ...sec,
+    questions: sec.questions.map((q) => {
+      if (q.status === 'PUBLISHED') {
+        const hasValidOptions =
+          Array.isArray(q.options) &&
+          q.options.length === 4 &&
+          q.options.every((opt) => opt && typeof opt.text === 'string' && opt.text.trim().length > 0);
+        const hasValidAnswer = q.correctAnswer && ['A', 'B', 'C', 'D'].includes(q.correctAnswer);
+
+        if (!hasValidOptions || !hasValidAnswer) {
+          return {
+            ...q,
+            status: 'NEEDS_REVIEW' as const,
+            needsReview: true,
+            reviewNotes: 'Auto-despublicada: La pregunta requiere 4 opciones completas y respuesta correcta asignada.',
+          };
+        }
+      }
+      return q;
+    }),
+  }));
+  const all = sections.flatMap((s) => s.questions);
   return {
     ...exam,
-    sections: exam.sections.map((sec) => ({
-      ...sec,
-      questions: sec.questions.map((q) => {
-        if (q.status === 'PUBLISHED') {
-          const hasValidOptions =
-            Array.isArray(q.options) &&
-            q.options.length === 4 &&
-            q.options.every((opt) => opt && typeof opt.text === 'string' && opt.text.trim().length > 0);
-          const hasValidAnswer = q.correctAnswer && ['A', 'B', 'C', 'D'].includes(q.correctAnswer);
-
-          if (!hasValidOptions || !hasValidAnswer) {
-            return {
-              ...q,
-              status: 'NEEDS_REVIEW' as const,
-              needsReview: true,
-              reviewNotes: 'Auto-despublicada: La pregunta requiere 4 opciones completas y respuesta correcta asignada.',
-            };
-          }
-        }
-        return q;
-      }),
-    })),
+    sections,
+    published: all.length > 0 && all.every((q) => q.status === 'PUBLISHED' || q.status === 'APPROVED'),
   };
 }
 
@@ -103,15 +109,15 @@ export const useStore = create<AppState>()((set, get) => ({
         examRows = examsFull.data as unknown[];
       }
 
-      // Intento con columnas v3; si aún no existen, reintento con el esquema anterior.
+      // Intento con columnas v3+; si aún no existen, reintento con el esquema anterior.
       let questionRows: unknown[] | null = null;
       const fullSelect =
-        'id,exam_id,numero_original,area,tema,category,confidence,difficulty,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at';
+        'id,exam_id,numero_original,area,tema,category,confidence,difficulty,statement_hash,duplicada_de,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at';
       const legacySelect =
         'id,exam_id,numero_original,area,tema,enunciado_md,imagenes,opciones,respuesta_correcta,tiene_respuesta_oficial,explicacion_md,created_at';
       const first = await supabase.from('questions').select(fullSelect).order('numero_original', { ascending: true });
       if (first.error) {
-        if (/category|confidence|difficulty|column|columna/i.test(first.error.message)) {
+        if (/category|confidence|difficulty|statement_hash|duplicada_de|column|columna/i.test(first.error.message)) {
           const retry = await supabase.from('questions').select(legacySelect).order('numero_original', { ascending: true });
           if (retry.error) throw retry.error;
           questionRows = retry.data as unknown[];
@@ -143,6 +149,23 @@ export const useStore = create<AppState>()((set, get) => ({
     }));
   },
 
+  renameExam: async (examId, title) => {
+    const clean = title.trim();
+    if (!clean) throw new Error('El título no puede estar vacío.');
+    const previousExams = get().exams;
+    set((state) => ({
+      exams: state.exams.map((e) => (e.id === examId ? { ...e, title: clean } : e)),
+    }));
+    try {
+      const { error } = await supabase.from('exams').update({ nombre: clean }).eq('id', examId);
+      if (error) throw new Error(formatDbError(error));
+    } catch (err) {
+      console.warn('[Supabase UPDATE] exams:', err);
+      set({ exams: previousExams });
+      throw err;
+    }
+  },
+
   updateQuestion: async (examId, sectionId, questionId, updates) => {
     const previousExams = get().exams;
     const examToUpdate = previousExams.find((e) => e.id === examId);
@@ -153,6 +176,11 @@ export const useStore = create<AppState>()((set, get) => ({
     if (!currentQuestion) throw new Error('Pregunta no encontrada');
 
     const mergedQuestion = { ...currentQuestion, ...updates };
+
+    // Si cambió el enunciado, el hash de duplicados se recalcula.
+    if (typeof updates.statement === 'string') {
+      mergedQuestion.statementHash = statementHash(updates.statement);
+    }
 
     if (mergedQuestion.status === 'PUBLISHED') {
       const hasValidOptions =
@@ -169,15 +197,19 @@ export const useStore = create<AppState>()((set, get) => ({
       }
     }
 
+    const updatedSections = examToUpdate.sections.map((section) => {
+      if (section.id !== sectionId) return section;
+      return {
+        ...section,
+        questions: section.questions.map((q) => (q.id === questionId ? mergedQuestion : q)),
+      };
+    });
+    // Recomputa la compuerta todo-o-nada: aprobar la última publica el examen.
+    const allUpdated = updatedSections.flatMap((s) => s.questions);
     const updatedExam: Exam = {
       ...examToUpdate,
-      sections: examToUpdate.sections.map((section) => {
-        if (section.id !== sectionId) return section;
-        return {
-          ...section,
-          questions: section.questions.map((q) => (q.id === questionId ? mergedQuestion : q)),
-        };
-      }),
+      sections: updatedSections,
+      published: allUpdated.length > 0 && allUpdated.every((q) => q.status === 'PUBLISHED' || q.status === 'APPROVED'),
     };
 
     set((state) => ({
@@ -207,12 +239,15 @@ export const useStore = create<AppState>()((set, get) => ({
         category: mergedQuestion.category ?? null,
         confidence: mergedQuestion.confidence ?? null,
         difficulty: mergedQuestion.difficulty ?? 'medium',
+        statement_hash: mergedQuestion.statementHash ?? null,
+        // Al publicar/aprobar se limpia la marca de duplicada.
+        duplicada_de: mergedQuestion.status === 'NEEDS_REVIEW' ? (mergedQuestion.duplicadaDe ?? null) : null,
         imagenes,
       };
       const { error } = await supabase.from('questions').update(fullPayload).eq('id', questionId);
       if (error) {
-        if (/category|confidence|difficulty|column|columna/i.test(error.message)) {
-          const { category: _c, confidence: _cf, difficulty: _d, ...legacyPayload } = fullPayload;
+        if (/category|confidence|difficulty|statement_hash|duplicada_de|column|columna/i.test(error.message)) {
+          const { category: _c, confidence: _cf, difficulty: _d, statement_hash: _h, duplicada_de: _dd, ...legacyPayload } = fullPayload;
           const { error: legacyError } = await supabase.from('questions').update(legacyPayload).eq('id', questionId);
           if (legacyError) throw legacyError;
         } else {
@@ -304,12 +339,15 @@ export const useStore = create<AppState>()((set, get) => ({
     );
     if (!targetExam) return;
 
+    const updatedSections = targetExam.sections.map((section) => ({
+      ...section,
+      questions: section.questions.filter((q) => q.id !== actualQuestionId),
+    }));
+    const remaining = updatedSections.flatMap((s) => s.questions);
     const updatedExam: Exam = {
       ...targetExam,
-      sections: targetExam.sections.map((section) => ({
-        ...section,
-        questions: section.questions.filter((q) => q.id !== actualQuestionId),
-      })),
+      sections: updatedSections,
+      published: remaining.length > 0 && remaining.every((q) => q.status === 'PUBLISHED' || q.status === 'APPROVED'),
     };
 
     set((state) => ({

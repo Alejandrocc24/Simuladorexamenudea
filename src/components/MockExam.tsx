@@ -28,6 +28,13 @@ import { ReportQuestion } from './ReportQuestion';
 import { ConfirmModal } from './ConfirmModal';
 import { cn } from './Layout';
 import { BlockMath } from 'react-katex';
+import { assembleExact } from '../lib/sessionGroups';
+import {
+  deleteStudySession,
+  loadStudySession,
+  resolveSessionQuestions,
+  saveStudySession,
+} from '../services/studySessionService';
 
 const DEFAULT_MOCK_DURATION_SECONDS = 3 * 60 * 60; // 3 hours = 10,800 seconds
 
@@ -64,39 +71,77 @@ export function MockExam() {
     onConfirm: () => {}
   });
 
-  // Prepare questions pool
-  const allAvailableQuestions = useMemo(() => {
-    return exams.flatMap(e => e.sections.flatMap(s => s.questions))
-      .filter(q => q.status === 'PUBLISHED' || q.status === 'APPROVED');
-  }, [exams]);
+  // Solo exámenes publicados (todo o nada: si uno tiene pendientes, no aporta nada).
+  const publishedExams = useMemo(() => exams.filter((e) => e.published), [exams]);
 
-  // Mezcla aleatoria (Fisher-Yates)
-  const shuffle = <T,>(list: T[]): T[] => {
-    const arr = [...list];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
+  const sharedByExam = useMemo(
+    () => new Map(publishedExams.map((e) => [e.id, e.sharedTexts ?? []])),
+    [publishedExams]
+  );
+
+  const visibleQs = (e: Exam, sectionId: string): Question[] => {
+    const sec = e.sections.find((s) => s.id === sectionId);
+    if (!sec) return [];
+    return sec.questions
+      .filter((q) => q.status === 'PUBLISHED' || q.status === 'APPROVED')
+      .sort((a, b) => a.number - b.number);
   };
 
-  // Simulacro aleatorio: hasta 80 preguntas al azar entre TODAS las disponibles
-  // (hasta 40 de Razonamiento Lógico + hasta 40 de Competencia Lectora; si un
-  // componente no alcanza, se completa con las restantes).
-  const buildExamQuestions = (): Question[] => {
-    const logicQuestions = shuffle(allAvailableQuestions.filter(q => q.sectionId === 'razonamiento-logico'));
-    const readingQuestions = shuffle(allAvailableQuestions.filter(q => q.sectionId === 'competencia-lectora'));
+  // Pool de Razonamiento Lógico para armar 40 exactas por unidades.
+  const rlPool = useMemo(
+    () => publishedExams.flatMap((e) => visibleQs(e, 'razonamiento-logico')),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [publishedExams]
+  );
 
-    const selectedLogic = logicQuestions.slice(0, 40);
-    const selectedReading = readingQuestions.slice(0, 40);
+  // Exámenes elegibles para el bloque CL: publicados con exactamente 40 de lectura.
+  const eligibleClExams = useMemo(
+    () =>
+      publishedExams
+        .map((e) => ({ exam: e, cl: visibleQs(e, 'competencia-lectora') }))
+        .filter((x) => x.cl.length === 40),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [publishedExams]
+  );
 
-    let combined = shuffle([...selectedLogic, ...selectedReading]);
-    if (combined.length < 80) {
-      const remaining = shuffle(allAvailableQuestions.filter(q => !combined.some(c => c.id === q.id)));
-      combined = [...combined, ...remaining.slice(0, 80 - combined.length)];
+  // Simulacro de 80: 40 RL por unidades (sin partir grupos) + 40 CL de UN
+  // examen completo en orden original. Nunca de 40 ni mezclado entre bloques.
+  const buildMockSession = (): { questions: Question[] } | { error: string } => {
+    const rl = assembleExact(rlPool, sharedByExam, 40);
+    if (!rl) {
+      return {
+        error: `No se puede armar el bloque de Razonamiento Lógico con exactamente 40 preguntas sin partir grupos (hay ${rlPool.length} disponibles). Publica más preguntas o completa exámenes.`,
+      };
     }
-    return combined;
+    if (eligibleClExams.length === 0) {
+      return {
+        error: 'No hay ningún examen totalmente publicado con exactamente 40 preguntas de lectura. Completa un examen para habilitar el simulacro.',
+      };
+    }
+    const pick = eligibleClExams[Math.floor(Math.random() * eligibleClExams.length)];
+    return { questions: [...rl, ...pick.cl] };
   };
+
+  // Longitud del primer bloque (RL al inicio): racha inicial.
+  const logicCount = useMemo(() => {
+    let n = 0;
+    for (const q of examQuestions) {
+      if (q.sectionId !== 'razonamiento-logico') break;
+      n++;
+    }
+    return n;
+  }, [examQuestions]);
+
+  // Hora de fin del simulacro (el reloj sigue corriendo fuera de la página).
+  const [examEndsAt, setExamEndsAt] = useState<number>(0);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [resumeData, setResumeData] = useState<{
+    questions: Question[];
+    answers: Record<string, 'A' | 'B' | 'C' | 'D'>;
+    index: number;
+    endsAt: number;
+  } | null>(null);
+  const [resumeNote, setResumeNote] = useState<string | null>(null);
 
   // State refs to avoid interval reset on every answer change
   const userAnswersRef = useRef(userAnswers);
@@ -130,18 +175,120 @@ export function MockExam() {
   }, [examPhase]);
 
   // Start Exam Handler
-  const handleStartExam = () => {
-    const questions = buildExamQuestions();
-    if (questions.length === 0) return;
-
-    setExamQuestions(questions);
+  const handleStartExam = async () => {
+    setSetupError(null);
+    const built = buildMockSession();
+    if ('error' in built) {
+      setSetupError(built.error);
+      return;
+    }
+    const now = Date.now();
+    const endsAt = now + DEFAULT_MOCK_DURATION_SECONDS * 1000;
+    setExamQuestions(built.questions);
     setCurrentQuestionIndex(0);
     setUserAnswers({});
     setFlaggedQuestionIds(new Set());
     setTimeRemainingSeconds(DEFAULT_MOCK_DURATION_SECONDS);
-    setSessionStartTime(Date.now());
+    setSessionStartTime(now);
+    setExamEndsAt(endsAt);
     setCompletedSession(null);
+    setResumeData(null);
+    setResumeNote(null);
     setExamPhase('in_progress');
+    if (user) {
+      try {
+        await saveStudySession(user.id, {
+          modo: 'simulacro',
+          questionIds: built.questions.map((q) => q.id),
+          answers: {},
+          currentIndex: 0,
+          endsAt: new Date(endsAt).toISOString(),
+        });
+      } catch {
+        // sin persistencia: la sesión sigue en memoria
+      }
+    }
+  };
+
+  // Persistir progreso (orden + respuestas + índice + fin).
+  useEffect(() => {
+    if (!user || examPhase !== 'in_progress' || examQuestions.length === 0 || !examEndsAt) return;
+    const t = setTimeout(() => {
+      void saveStudySession(user.id, {
+        modo: 'simulacro',
+        questionIds: examQuestions.map((q) => q.id),
+        answers: userAnswers,
+        currentIndex: currentQuestionIndex,
+        endsAt: new Date(examEndsAt).toISOString(),
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [user, examPhase, examQuestions, userAnswers, currentQuestionIndex, examEndsAt]);
+
+  // Cargar sesión guardada para retomar (setup).
+  useEffect(() => {
+    if (!user || isLoadingExams || examPhase !== 'setup') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await loadStudySession(user.id, 'simulacro');
+        if (cancelled || !saved || saved.questionIds.length === 0) return;
+        const resolved = resolveSessionQuestions(saved.questionIds, exams);
+        if (!resolved) {
+          await deleteStudySession(user.id, 'simulacro').catch(() => {});
+          if (!cancelled) setResumeNote('Tu simulacro guardado ya no está disponible (el contenido se despublicó).');
+          return;
+        }
+        const endsAt = saved.endsAt ? new Date(saved.endsAt).getTime() : 0;
+        if (!cancelled) {
+          setResumeData({
+            questions: resolved,
+            answers: saved.answers ?? {},
+            index: Math.max(0, Math.min(saved.currentIndex, resolved.length - 1)),
+            endsAt,
+          });
+          setResumeNote(null);
+        }
+      } catch {
+        if (!cancelled) setResumeData(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isLoadingExams, exams, examPhase]);
+
+  const applyResume = async (expired: boolean) => {
+    if (!resumeData) return;
+    const { questions, answers, index, endsAt } = resumeData;
+    setExamQuestions(questions);
+    setUserAnswers(answers);
+    setFlaggedQuestionIds(new Set());
+    setCurrentQuestionIndex(index);
+    const remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+    setTimeRemainingSeconds(remaining);
+    setExamEndsAt(endsAt);
+    setSessionStartTime(endsAt - DEFAULT_MOCK_DURATION_SECONDS * 1000);
+    setCompletedSession(null);
+    setResumeData(null);
+    setResumeNote(null);
+    setExamPhase('in_progress');
+    if (expired || remaining <= 0) {
+      // Tiempo agotado fuera: se califica con lo respondido.
+      await completeMockSession(questions, answers, new Set(), endsAt - DEFAULT_MOCK_DURATION_SECONDS * 1000);
+    }
+  };
+
+  const discardResume = async () => {
+    if (user) {
+      try {
+        await deleteStudySession(user.id, 'simulacro');
+      } catch {
+        // ignorar
+      }
+    }
+    setResumeData(null);
+    setResumeNote(null);
   };
 
   // Option Select Handler
@@ -172,11 +319,20 @@ export function MockExam() {
 
   // Calculate & Finish Exam
   const finishMockExam = async (forcedByTimer = false) => {
-    const currentQList = examQuestionsRef.current;
-    const currentAnswers = userAnswersRef.current;
-    const currentFlags = flaggedQuestionIdsRef.current;
-    const currentStart = sessionStartTimeRef.current;
+    await completeMockSession(
+      examQuestionsRef.current,
+      userAnswersRef.current,
+      flaggedQuestionIdsRef.current,
+      sessionStartTimeRef.current
+    );
+  };
 
+  const completeMockSession = async (
+    currentQList: Question[],
+    currentAnswers: Record<string, 'A' | 'B' | 'C' | 'D'>,
+    currentFlags: Set<string>,
+    currentStart: number
+  ) => {
     const endTime = Date.now();
     const timeSpentSeconds = Math.max(1, Math.round((endTime - currentStart) / 1000));
     
@@ -254,6 +410,15 @@ export function MockExam() {
     setCompletedSession(session);
     setExamPhase('results');
 
+    // La sesión en curso se elimina al calificar.
+    if (user) {
+      try {
+        await deleteStudySession(user.id, 'simulacro');
+      } catch {
+        // ignorar
+      }
+    }
+
     // Save session to storage
     try {
       await addMockSession(session, user?.id);
@@ -285,7 +450,7 @@ export function MockExam() {
   }
 
   // 1. NO EXAMS EMPTY STATE
-  if (exams.length === 0 && allAvailableQuestions.length === 0) {
+  if (rlPool.length === 0 && eligibleClExams.length === 0) {
     return (
       <div className="max-w-2xl mx-auto p-8 text-center bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-sm my-12 animate-in fade-in">
         <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -293,7 +458,7 @@ export function MockExam() {
         </div>
         <h2 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white">No hay preguntas disponibles</h2>
         <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">
-          Carga un archivo JSON desde el panel de Administración y publica preguntas para habilitar los simulacros.
+          Publica exámenes completos desde Administración: se necesitan 40 de Razonamiento Lógico y un examen con 40 de lectura.
         </p>
       </div>
     );
@@ -301,10 +466,7 @@ export function MockExam() {
 
   // 2. SETUP & INSTRUCTIONS SCREEN
   if (examPhase === 'setup') {
-    const logicAvailable = allAvailableQuestions.filter(q => q.sectionId === 'razonamiento-logico').length;
-    const readingAvailable = allAvailableQuestions.filter(q => q.sectionId === 'competencia-lectora').length;
-    // Tamaño del simulacro que se armará al azar (hasta 40 RL + 40 CL, máx. 80)
-    const previewTotal = Math.min(80, allAvailableQuestions.length);
+    // Tamaño fijo: 40 RL por unidades + 40 CL de un examen completo.
     const recentSessions = mockSessions.slice(0, 5);
 
     return (
@@ -340,18 +502,55 @@ export function MockExam() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-center">
-                <p className="text-2xl font-black text-gray-900 dark:text-white">{logicAvailable}</p>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{rlPool.length}</p>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Razonamiento Lógico</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-center">
-                <p className="text-2xl font-black text-gray-900 dark:text-white">{readingAvailable}</p>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Competencia Lectora</p>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{eligibleClExams.length}</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Exámenes CL elegibles</p>
               </div>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              Al comenzar se eligen <strong>al azar hasta 40 de RL + 40 de CL</strong> (máx. 80) entre todas las
-              preguntas publicadas, sin importar de qué examen vengan. Cada intento es diferente.
+              Al comenzar se arman <strong>dos bloques: 40 de RL</strong> por unidades completas en orden aleatorio (posiciones 1–40) <strong>+ 40 de CL</strong> de
+              un examen completo en su orden original (posiciones 41–80). Así puedes resolver un componente primero. Cada intento es diferente.
             </p>
+
+            {resumeNote && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs rounded-xl font-medium">
+                {resumeNote}
+              </div>
+            )}
+            {resumeData && (
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+                    Tienes un simulacro en curso
+                  </p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                    {Object.keys(resumeData.answers).length}/{resumeData.questions.length} respondidas · el reloj siguió corriendo
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => applyResume(Date.now() >= resumeData.endsAt)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"
+                  >
+                    Retomar
+                  </button>
+                  <button
+                    onClick={discardResume}
+                    className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold hover:bg-gray-50"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            )}
+            {setupError && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs rounded-xl font-medium">
+                {setupError}
+              </div>
+            )}
 
             {/* Exam Rules Summary */}
             <div className="bg-[#005F2B]/5 dark:bg-[#005F2B]/20 rounded-2xl p-5 border border-[#005F2B]/20 space-y-3">
@@ -362,7 +561,7 @@ export function MockExam() {
               <ul className="text-xs text-gray-700 dark:text-emerald-100/90 space-y-2 leading-relaxed">
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#005F2B] dark:bg-emerald-400 mt-1.5 flex-shrink-0" />
-                  <span><strong>Total Preguntas:</strong> {previewTotal} preguntas al azar de Razonamiento Lógico y Competencia Lectora.</span>
+                  <span><strong>Total Preguntas:</strong> siempre 80: 40 de Razonamiento Lógico (grupos completos, sin partir) y 40 de Competencia Lectora de un examen completo.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#005F2B] dark:bg-emerald-400 mt-1.5 flex-shrink-0" />
@@ -381,8 +580,7 @@ export function MockExam() {
 
             <button 
               onClick={handleStartExam}
-              disabled={previewTotal === 0}
-              className="w-full flex items-center justify-center gap-3 py-4 bg-[#005F2B] hover:bg-[#004D23] disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all text-base cursor-pointer"
+              className="w-full flex items-center justify-center gap-3 py-4 bg-[#005F2B] hover:bg-[#004D23] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all text-base cursor-pointer"
             >
               Comenzar Simulacro Ahora
               <ArrowRight className="w-5 h-5" />
@@ -555,6 +753,8 @@ export function MockExam() {
             <SharedContextBox 
               sharedTexts={exams.find(e => e.id === currentQ.examId)?.sharedTexts} 
               questionNumber={currentQ.number}
+              examId={currentQ.examId}
+              sessionOrder={examQuestions.map((q) => ({ examId: q.examId, number: q.number }))}
               sharedImages={sharedAssetsOf(currentQ.assets)}
             />
 
@@ -650,43 +850,56 @@ export function MockExam() {
               </div>
             </div>
 
-            {/* Questions Grid 1..80 */}
-            <div className="overflow-y-auto flex-1 grid grid-cols-5 gap-1.5 p-1">
-              {examQuestions.map((q, idx) => {
-                const isAnswered = Boolean(userAnswers[q.id]);
-                const isQFlagged = flaggedQuestionIds.has(q.id);
-                const isCurrent = idx === currentQuestionIndex;
+            {/* Questions Grid por bloques (RL 1..N, luego CL) */}
+            <div className="overflow-y-auto flex-1 p-1 space-y-3">
+              {[
+                { label: 'Razonamiento Lógico', from: 0, to: logicCount },
+                { label: 'Competencia Lectora', from: logicCount, to: examQuestions.length },
+              ].filter((g) => g.to > g.from).map((group) => (
+                <div key={group.label}>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                    {group.label} ({group.from + 1}–{group.to})
+                  </p>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {examQuestions.slice(group.from, group.to).map((q, i) => {
+                      const idx = group.from + i;
+                      const isAnswered = Boolean(userAnswers[q.id]);
+                      const isQFlagged = flaggedQuestionIds.has(q.id);
+                      const isCurrent = idx === currentQuestionIndex;
 
-                let cellStyle = "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50";
-                if (isAnswered) {
-                  cellStyle = "bg-emerald-500 text-white font-bold border-emerald-600";
-                }
-                if (isQFlagged) {
-                  cellStyle = isAnswered 
-                    ? "bg-emerald-500 text-white font-bold ring-2 ring-amber-400" 
-                    : "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold border-amber-400";
-                }
-                if (isCurrent) {
-                  cellStyle += " ring-2 ring-[#005F2B] ring-offset-2 dark:ring-offset-gray-800 scale-105";
-                }
+                      let cellStyle = "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50";
+                      if (isAnswered) {
+                        cellStyle = "bg-emerald-500 text-white font-bold border-emerald-600";
+                      }
+                      if (isQFlagged) {
+                        cellStyle = isAnswered 
+                          ? "bg-emerald-500 text-white font-bold ring-2 ring-amber-400" 
+                          : "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold border-amber-400";
+                      }
+                      if (isCurrent) {
+                        cellStyle += " ring-2 ring-[#005F2B] ring-offset-2 dark:ring-offset-gray-800 scale-105";
+                      }
 
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => setCurrentQuestionIndex(idx)}
-                    className={cn(
-                      "h-9 rounded-xl text-xs font-semibold flex items-center justify-center border transition-all relative",
-                      cellStyle
-                    )}
-                    title={`Pregunta ${idx + 1}`}
-                  >
-                    {idx + 1}
-                    {isQFlagged && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
-                    )}
-                  </button>
-                );
-              })}
+                      return (
+                        <button
+                          key={q.id}
+                          onClick={() => setCurrentQuestionIndex(idx)}
+                          className={cn(
+                            "h-9 rounded-xl text-xs font-semibold flex items-center justify-center border transition-all relative",
+                            cellStyle
+                          )}
+                          title={`Pregunta ${idx + 1} (${group.label})`}
+                        >
+                          {idx + 1}
+                          {isQFlagged && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -708,8 +921,11 @@ export function MockExam() {
   if (examPhase === 'results' && completedSession) {
     const session = completedSession;
     
-    // Filter questions for review mode
-    const reviewQuestions = examQuestions.filter(q => {
+    // Filter questions for review mode (se conserva la posición original
+    // en el simulacro: el estudiante no ve el número oficial Q).
+    const reviewQuestions = examQuestions
+      .map((q, originalIndex) => ({ q, originalIndex }))
+      .filter(({ q }) => {
       const ans = session.answers[q.id];
       const isCorrect = q.correctAnswer && ans === q.correctAnswer;
       const isFlagged = session.flaggedQuestionIds?.includes(q.id);
@@ -865,7 +1081,7 @@ export function MockExam() {
 
           {/* List of Questions */}
           <div className="space-y-6 pt-2">
-            {reviewQuestions.map((q, idx) => {
+            {reviewQuestions.map(({ q, originalIndex }) => {
               const userAnswer = session.answers[q.id];
               const isCorrect = q.correctAnswer && userAnswer === q.correctAnswer;
               const isOmitted = !userAnswer;
@@ -878,7 +1094,7 @@ export function MockExam() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-gray-900 dark:text-white">
-                        Pregunta #{q.number}
+                        Pregunta #{originalIndex + 1}
                       </span>
                       <span className="text-xs text-gray-500 font-medium">
                         ({q.sectionId === 'razonamiento-logico' ? 'Razonamiento Lógico' : 'Competencia Lectora'})

@@ -40,6 +40,10 @@ export interface Question {
   category?: string;
   /** Confianza de la extracción IA. Uso interno, no se muestra al estudiante. */
   confidence?: QuestionConfidence | string;
+  /** Hash del enunciado normalizado (detección de duplicados). */
+  statementHash?: string | null;
+  /** Referencia legible a la posible original ("Q12 · Examen 2024-1"). */
+  duplicadaDe?: string | null;
   difficulty: Difficulty;
   status: QuestionStatus;
   needsReview?: boolean;
@@ -77,6 +81,12 @@ export interface Exam {
   /** Null en simulacros de institutos (sin año/semestre oficial). */
   year: number | null;
   semester: 1 | 2 | null;
+  /**
+   * Todo o nada: true solo cuando TODAS sus preguntas están aprobadas/
+   * publicadas individualmente. Si hay una pendiente, ninguna se ve en
+   * práctica o simulacro.
+   */
+  published: boolean;
   sections: Section[];
   sharedTexts?: SharedText[];
   sourceFileId?: string;

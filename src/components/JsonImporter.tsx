@@ -11,6 +11,7 @@ import {
   normalizeConfidence,
   normalizeDifficulty,
   parseExamJson,
+  statementHash,
 } from '../lib/jsonClean';
 
 interface JsonImporterProps {
@@ -202,6 +203,7 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -275,6 +277,7 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
         const parsed = parseExamJson(text);
         analyzeJSON(parsed);
         setParsedData(parsed);
+        setTitleDraft(suggestTitle(parsed, file.name));
       } catch (err: unknown) {
         setParsedData(null);
         setParseError(`JSON inválido: ${err instanceof Error ? err.message : 'error desconocido'}`);
@@ -300,6 +303,7 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
       const parsed = parseExamJson(text);
       analyzeJSON(parsed);
       setParsedData(parsed);
+      setTitleDraft(suggestTitle(parsed));
     } catch (err: unknown) {
       setParsedData(null);
       setParseError(err instanceof Error ? err.message : 'JSON inválido');
@@ -313,6 +317,18 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
     questions: Array<Record<string, unknown>>;
     sharedTexts: Array<{ id: string; title: string; text: string; appliesToQuestions: number[] }>;
   }
+
+  /** Título sugerido: el del JSON, o el nombre de tu archivo si el JSON no trae. */
+  const suggestTitle = (data: unknown, fileName?: string): string => {
+    try {
+      const first = collectExamsToImport(data)[0];
+      if (first && !/^examen (importado|sin título)/i.test(first.title)) return first.title;
+    } catch {
+      // ignorar: se usa el fallback
+    }
+    const base = (fileName ?? '').replace(/\.json$/i, '').replace(/[_-]+/g, ' ').trim();
+    return base || 'Examen sin título';
+  };
 
   const collectExamsToImport = (data: unknown): Array<ExamToImport> => {
     const d = data as Record<string, unknown>;
@@ -362,8 +378,33 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
       }
 
       const examsToImport = collectExamsToImport(parsedData);
+      // Título editable: vale para el caso de un solo examen (el habitual).
+      // Así queda con el nombre que le pusiste a tu archivo, no el incrustado.
+      const customTitle = titleDraft.trim();
+      if (examsToImport.length === 1 && customTitle) {
+        examsToImport[0].title = customTitle;
+      }
       let totalQuestions = 0;
       let pendingReview = 0;
+      let duplicates = 0;
+
+      // Hashes ya guardados (una sola consulta) para cazar duplicados,
+      // incluso de otros archivos subidos antes.
+      const knownHashes = new Map<string, string>();
+      try {
+        const [{ data: hashRows }, { data: examNames }] = await Promise.all([
+          supabase.from('questions').select('statement_hash,numero_original,exam_id'),
+          supabase.from('exams').select('id,nombre'),
+        ]);
+        const names = new Map(((examNames ?? []) as Array<{ id: string; nombre: string }>).map((e) => [e.id, e.nombre]));
+        for (const r of (hashRows ?? []) as Array<{ statement_hash: string | null; numero_original: number | null; exam_id: string }>) {
+          if (r.statement_hash) {
+            knownHashes.set(r.statement_hash, `Q${r.numero_original ?? '?'} · ${names.get(r.exam_id) ?? 'otro examen'}`);
+          }
+        }
+      } catch {
+        // Si la migración v3c aún no se aplicó, se importa sin detectar duplicados.
+      }
 
       for (const examData of examsToImport) {
         const periodo = toPeriodo(examData.year, examData.semester);
@@ -402,9 +443,13 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
           const respuesta_correcta = ['A', 'B', 'C', 'D', 'E'].includes(rawAnswer) ? rawAnswer : null;
           const confidence = normalizeConfidence(q['confidence']);
           const needsReviewByConfidence = confidence === 'low';
-          // confidence=low → pendiente de revisión (tiene_respuesta_oficial=false
-          // hasta que el admin la apruebe), aunque traiga respuesta.
-          const tiene_respuesta_oficial = respuesta_correcta !== null && !needsReviewByConfidence;
+          const statement = cleanImportText(q['statement'] ?? q['enunciado'] ?? q['enunciado_md'] ?? '');
+          const hash = statementHash(statement);
+          // Duplicada (de otro archivo o del mismo): a revisión, sin publicar,
+          // para que el admin la compare y descarte. La respuesta se conserva.
+          const duplicadaDe = hash ? knownHashes.get(hash) ?? null : null;
+          if (duplicadaDe) duplicates++;
+          const tiene_respuesta_oficial = respuesta_correcta !== null && !needsReviewByConfidence && !duplicadaDe;
           if (needsReviewByConfidence) pendingReview++;
           return {
             exam_id: examId as string,
@@ -414,7 +459,9 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
             category: typeof q['category'] === 'string' && String(q['category']).trim() ? String(q['category']).trim() : null,
             confidence: confidence,
             difficulty: normalizeDifficulty(q['difficulty']),
-            enunciado_md: cleanImportText(q['statement'] ?? q['enunciado'] ?? q['enunciado_md'] ?? ''),
+            statement_hash: hash,
+            duplicada_de: duplicadaDe,
+            enunciado_md: statement,
             imagenes: extractImages(q),
             opciones,
             respuesta_correcta,
@@ -422,13 +469,22 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
             explicacion_md: cleanImportText(q['explanation'] ?? q['explicacion'] ?? '') || null,
           };
         });
+        // Las de este examen también cuentan para duplicados dentro del mismo archivo.
+        rows.forEach((r) => {
+          if (r.statement_hash) {
+            knownHashes.set(
+              r.statement_hash as string,
+              `Q${r.numero_original} · ${examData.title}`
+            );
+          }
+        });
 
         // Insertar por lotes para evitar payloads gigantes.
-        // Las columnas nuevas (category/confidence/difficulty) pueden no existir
+        // Las columnas nuevas (category/confidence/difficulty/hash) pueden no existir
         // aún: ante ese error se reintenta con el esquema anterior.
         const BATCH = 100;
         const stripNewColumns = (r: Record<string, unknown>) => {
-          const { category: _c, confidence: _cf, difficulty: _d, ...rest } = r;
+          const { category: _c, confidence: _cf, difficulty: _d, statement_hash: _h, duplicada_de: _dd, ...rest } = r;
           return rest;
         };
         for (let i = 0; i < rows.length; i += BATCH) {
@@ -447,12 +503,16 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
       }
 
       await fetchExams();
+      const notes: string[] = [];
+      if (pendingReview > 0) notes.push(`${pendingReview} a revisión (confidence=low)`);
+      if (duplicates > 0) notes.push(`${duplicates} posible(s) duplicada(s) a revisión`);
       setSuccessMessage(
         `¡Éxito! Se importaron ${totalQuestions} preguntas correctamente a Supabase.` +
-          (pendingReview > 0 ? ` ${pendingReview} quedaron pendientes de revisión (confidence=low).` : '')
+          (notes.length > 0 ? ` ${notes.join(' · ')}.` : '')
       );
       setParsedData(null);
       setJsonText('');
+      setTitleDraft('');
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (onImportSuccess) onImportSuccess();
     } catch (err: unknown) {
@@ -481,6 +541,12 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
   };
 
   const stats = parsedData ? analyzeJSON(parsedData) : null;
+  let singleExam = false;
+  try {
+    singleExam = !!parsedData && collectExamsToImport(parsedData).length === 1;
+  } catch {
+    singleExam = false;
+  }
 
   return (
     <div className="space-y-4">
@@ -553,6 +619,19 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
               {stats.totalQuestions} preguntas
             </span>
           </div>
+          {singleExam && (
+            <div>
+              <label className="block text-[11px] font-bold text-emerald-900 dark:text-emerald-200 mb-1">
+                Título del examen (usa el nombre de tu archivo, no el incrustado)
+              </label>
+              <input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                placeholder="Ej: Simulacro instituto 2026-A"
+                className="w-full text-xs p-2 bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              />
+            </div>
+          )}
           <div className="grid gap-2 text-emerald-800 dark:text-emerald-300 font-medium grid-cols-3">
             <div className="bg-white/60 dark:bg-black/20 p-1.5 rounded text-center">
               <span className="block text-[10px] text-gray-500">R. Lógico</span>

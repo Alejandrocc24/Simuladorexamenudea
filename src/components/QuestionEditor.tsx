@@ -212,6 +212,14 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
         </div>
       )}
 
+      {/* Duplicate warning (import hash match) */}
+      {question.duplicadaDe && (
+        <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>Posible duplicada de <strong>{question.duplicadaDe}</strong>. Compárala: si es la misma, elimínala; si es válida, publícala y la marca se limpia sola.</span>
+        </div>
+      )}
+
       {/* TAB 1: EDIT MODE */}
       {activeTab === 'edit' ? (
         <div className="space-y-4 flex-1">

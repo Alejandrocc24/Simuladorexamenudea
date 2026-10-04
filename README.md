@@ -72,9 +72,17 @@ Ejecutar `supabase/migration_v3.sql` en el SQL Editor (agrega `questions.categor
 
 Ejecutar `supabase/migration_v3b_constraints.sql`: permite `periodo` nulo, amplía el `CHECK` de `exams.tipo` a `examen_real`/`simulacro` y pone `ON DELETE CASCADE` en las FKs de duelos (`room_answers`, `room_participants`, `rooms`). La primera mitad solo diagnostica (CHECKs, NOT NULLs y FKs).
 
+### Migración Supabase v3c (duplicados por hash)
+
+Ejecutar `supabase/migration_v3c_statement_hash.sql`: agrega `questions.statement_hash` (índice) y `questions.duplicada_de`. Al importar se calcula el hash del enunciado normalizado; si ya existe (mismo u otro archivo), la pregunta entra a revisión con la referencia (p. ej. "Q12 · Examen 2024-1") para comparar y descartar. Botón "Generar hashes" en Gestión para las importadas antes. El título del examen es editable antes de importar (sugerido desde tu nombre de archivo) y renombrable después; la lista del paso 2 es acordeón colapsado por defecto. En Práctica/Simulacro el estudiante solo ve posición ("Pregunta 7 de 120", orden aleatorio opcional); el número oficial y el examen solo los ve el admin.
+
 ### Migración Supabase v4 (moderación de usuarios)
 
 Ejecutar `supabase/migration_v4_user_moderation.sql`: crea `banned_users` y las funciones `admin_user_activity` (última conexión real desde `auth.users`), `am_i_banned`, `admin_ban_user`, `admin_unban_user` y `admin_delete_user`. Sin esta migración, la pestaña Usuarios solo gestiona roles. Vetar bloquea el ingreso sin borrar nada; Eliminar borra perfil, intentos y datos de duelos pero la persona puede volver a registrarse. Con casillas puedes vetar o eliminar en lote (p. ej. inactivos); la cuenta de acceso (`auth.users`) solo se elimina desde el Dashboard de Supabase → Authentication → Users.
+
+### Migración Supabase v7 (sesiones en curso)
+
+Ejecutar `supabase/migration_v7_study_sessions.sql`: crea `study_sessions` (una fila por usuario y modo, con RLS propia) para retomar práctica/simulacro en cualquier dispositivo: guarda ids en orden, respuestas, índice y hora de fin. Reglas de sesión: los grupos de lectura nunca se parten (unidades completas en orden original); RL arma exactamente 40 por unidades; CL del simulacro es un examen completo en orden original; las etiquetas de contexto se calculan por posición; publicación todo-o-nada por examen (badge Publicado/Sin publicar en el admin).
 
 ### Migración Supabase v5 (reportes de preguntas)
 

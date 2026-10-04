@@ -58,4 +58,8 @@ export interface SupabaseQuestionRow {
   confidence?: string | null;
   /** Nivel de dificultad. Columna nueva. */
   difficulty?: string | null;
+  /** Hash del enunciado normalizado (duplicados). Columna nueva. */
+  statement_hash?: string | null;
+  /** Referencia a la posible original. Columna nueva. */
+  duplicada_de?: string | null;
 }

@@ -92,6 +92,37 @@ export function normalizeDifficulty(raw: unknown): 'easy' | 'medium' | 'hard' {
   return 'medium';
 }
 
+/**
+ * Normaliza un enunciado para detección de duplicados: minúsculas, sin
+ * LaTeX/citas/puntuación y con espacios colapsados. Misma tubería que el
+ * importador, así el hash coincide siempre.
+ */
+export function normalizeForHash(value: unknown): string {
+  const clean = cleanImportText(value).toLowerCase();
+  if (!clean) return '';
+  return clean
+    .replace(/\\[a-z]+/g, ' ')
+    .replace(/[^a-z0-9áéíóúüñ\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Hash cyrb53 (rápido, sin dependencias) del enunciado normalizado. */
+export function statementHash(value: unknown): string | null {
+  const norm = normalizeForHash(value);
+  if (!norm) return null;
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < norm.length; i++) {
+    const ch = norm.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
 /** Normaliza `confidence` del JSON v3 a high|medium|low. */
 export function normalizeConfidence(raw: unknown): 'high' | 'medium' | 'low' | null {
   const v = String(raw ?? '').toLowerCase().trim();

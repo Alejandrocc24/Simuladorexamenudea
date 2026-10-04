@@ -1,11 +1,21 @@
 import React, { useState } from 'react';
 import { SharedText, QuestionAsset } from '../types';
-import { BookOpen, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import { MathRenderer } from './MathRenderer';
+import { contextLabel, displayContextTitle, inlineLabelOf, processSharedText } from '../lib/sessionGroups';
+
+export interface SessionOrderItem {
+  examId: string;
+  number: number;
+}
 
 interface SharedContextBoxProps {
   sharedTexts?: SharedText[];
   questionNumber: number;
+  /** Examen de origen (la identidad del grupo es examen + contexto). */
+  examId?: string;
+  /** Preguntas en orden de sesión para calcular posiciones (Regla 6). */
+  sessionOrder?: SessionOrderItem[];
   className?: string;
   defaultExpanded?: boolean;
   /**
@@ -20,6 +30,8 @@ interface SharedContextBoxProps {
 export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   sharedTexts,
   questionNumber,
+  examId = '',
+  sessionOrder = [],
   className = '',
   defaultExpanded = true,
   sharedImages = []
@@ -29,7 +41,7 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   }
 
   // Find all shared texts that apply to this question
-  const matchingTexts = sharedTexts.filter(st => 
+  const matchingTexts = sharedTexts.filter(st =>
     Array.isArray(st.appliesToQuestions) && st.appliesToQuestions.includes(questionNumber)
   );
 
@@ -40,7 +52,13 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   return (
     <div className={`space-y-4 mb-6 ${className}`}>
       {matchingTexts.map((st) => (
-        <SharedTextCard key={st.id} sharedText={st} defaultExpanded={defaultExpanded} sharedImages={sharedImages} />
+        <SharedTextCard
+          key={st.id}
+          sharedText={st}
+          defaultExpanded={defaultExpanded}
+          sharedImages={sharedImages}
+          label={contextLabel(st.appliesToQuestions ?? [], sessionOrder, examId)}
+        />
       ))}
     </div>
   );
@@ -50,14 +68,18 @@ interface SharedTextCardProps {
   sharedText: SharedText;
   defaultExpanded: boolean;
   sharedImages?: QuestionAsset[];
+  /** Etiqueta calculada por posiciones de sesión (Regla 6); null = sin orden. */
+  label?: string | null;
 }
 
-const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded, sharedImages = [] }) => {
+const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded, sharedImages = [], label = null }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const images = (sharedImages ?? []).filter((a) => {
     const src = a.imagePath || a.croppedImage || a.content || a.base64;
     return a.type === 'image' && !!src;
   });
+  const title = displayContextTitle(sharedText.title);
+  const body = label ? processSharedText(sharedText.text, inlineLabelOf(label)) : sharedText.text;
 
   return (
     <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 dark:from-indigo-950/30 dark:via-gray-900 dark:to-blue-950/20 shadow-sm overflow-hidden transition-all">
@@ -75,13 +97,14 @@ const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpa
               <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-700 dark:text-indigo-300">
                 Contexto de lectura / Situación
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200/70 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold flex items-center gap-1">
-                <Layers className="w-3 h-3" />
-                Preguntas {sharedText.appliesToQuestions.join(', ')}
-              </span>
+              {label && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200/70 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold">
+                  {label}
+                </span>
+              )}
             </div>
             <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate">
-              {sharedText.title || 'Texto de referencia'}
+              {title}
             </h4>
           </div>
         </div>
@@ -114,7 +137,7 @@ const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpa
               })}
             </div>
           )}
-          <MathRenderer text={sharedText.text} />
+          <MathRenderer text={body} />
         </div>
       )}
     </div>

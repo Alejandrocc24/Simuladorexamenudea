@@ -111,7 +111,8 @@ export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string)
   // `confidence = low` queda pendiente de revisión hasta que el admin la apruebe,
   // aunque traiga respuesta oficial.
   const lowConfidence = confidence === 'low';
-  const published = Boolean(q.tiene_respuesta_oficial) && correctAnswer !== null && hasValidOptions && !lowConfidence;
+  const dupRef = typeof q.duplicada_de === 'string' && q.duplicada_de.trim() ? q.duplicada_de.trim() : null;
+  const published = Boolean(q.tiene_respuesta_oficial) && correctAnswer !== null && hasValidOptions && !lowConfidence && !dupRef;
 
   return {
     id: q.id,
@@ -126,14 +127,18 @@ export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string)
     topic: q.tema ?? (toSectionId(q.area) === 'competencia-lectora' ? 'Competencia Lectora' : 'Razonamiento Lógico'),
     category: typeof q.category === 'string' && q.category ? q.category : undefined,
     confidence: confidence ?? (typeof q.confidence === 'string' && q.confidence ? q.confidence : undefined),
+    statementHash: typeof q.statement_hash === 'string' ? q.statement_hash : undefined,
+    duplicadaDe: dupRef ?? undefined,
     difficulty: normalizeDifficulty(q.difficulty),
     status: published ? 'PUBLISHED' : 'NEEDS_REVIEW',
     needsReview: !published,
     reviewNotes: published
       ? ''
-      : lowConfidence
-        ? 'Importada con confidence=low: pendiente de revisión por el administrador antes de publicar.'
-        : 'Pregunta importada desde JSON; requiere respuesta oficial y 4 opciones completas.',
+      : dupRef
+        ? `Posible duplicada de ${dupRef}: compárala antes de publicar o descártala.`
+        : lowConfidence
+          ? 'Importada con confidence=low: pendiente de revisión por el administrador antes de publicar.'
+          : 'Pregunta importada desde JSON; requiere respuesta oficial y 4 opciones completas.',
     source: {
       fileId: q.exam_id,
       originalFileName: `${examTitle}.json`,
@@ -143,6 +148,11 @@ export function supabaseQuestionToApp(q: SupabaseQuestionRow, examTitle: string)
       originalText: q.enunciado_md ?? '',
     },
   };
+}
+
+/** Visible individualmente: aprobada/publicada por sus propios méritos. */
+export function isIndividuallyVisible(q: Question): boolean {
+  return q.status === 'PUBLISHED' || q.status === 'APPROVED';
 }
 
 export function supabaseToExams(
@@ -178,6 +188,10 @@ export function supabaseToExams(
       title: e.nombre ?? 'Examen sin título',
       year,
       semester,
+      // Todo o nada: el examen se publica solo si TODAS sus preguntas están
+      // aprobadas/publicadas individualmente. Si hay una pendiente, ninguna
+      // aparece en práctica o simulacro (aunque su estado diga otra cosa).
+      published: qs.length > 0 && qs.every(isIndividuallyVisible),
       sections: Array.from(sectionsMap.values()).filter((s) => s.questions.length > 0),
       sharedTexts: normalizeSharedTexts(e.shared_texts ?? e.sharedTexts),
       sourceFileId: e.id,
