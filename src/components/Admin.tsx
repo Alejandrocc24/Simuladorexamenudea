@@ -202,25 +202,26 @@ export function Admin() {
           }}
         />
       ) : (
-        <div className="space-y-6 max-w-6xl">
-          {/* Paso 1: importar a ancho completo para que el formulario respire */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <div className="flex flex-wrap items-center gap-3 mb-1">
+        <div className="space-y-6">
+          {/* Fila 1: paso 1 (compacto) + paso 2 (lista) en dos cards lado a lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-2.5 mb-1">
               <span className="w-7 h-7 rounded-full bg-emerald-600 text-white text-sm font-black flex items-center justify-center flex-shrink-0">
                 1
               </span>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <FileUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /> Importar examen
+              <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <FileUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Importar examen
               </h3>
-              <span className="sm:ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 rounded-full px-3 py-1">
-                <FileJson className="w-3.5 h-3.5" /> JSON → Supabase
+              <span className="sm:ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 rounded-full px-2.5 py-0.5">
+                <FileJson className="w-3 h-3" /> JSON → Supabase
               </span>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5 sm:ml-10">
-              Sube un archivo <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">.json</code> o
-              pega su contenido. Las preguntas se guardan directamente en Supabase.
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+              Sube un <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-700 px-1 rounded">.json</code> o
+              pega su contenido.
             </p>
-            <div className="max-w-2xl sm:ml-10">
+            <div>
               <JsonImporter
                 onImportSuccess={() => {
                   const refreshed = useStore.getState().exams;
@@ -230,10 +231,7 @@ export function Admin() {
               />
             </div>
           </div>
-
-          {/* Paso 2 y 3: lista (2/5) + revisión (3/5) */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
-            <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
               <div className="flex items-center gap-3 mb-3">
                 <span className="w-7 h-7 rounded-full bg-emerald-600 text-white text-sm font-black flex items-center justify-center flex-shrink-0">
                   2
@@ -448,8 +446,10 @@ export function Admin() {
               <div className="p-4 text-center text-sm text-gray-500">No hay exámenes importados todavía.</div>
             )}
           </div>
+          </div>
 
-          <div className="lg:col-span-3">
+          {/* Paso 3 a ancho completo: editor + figuras lado a lado en pantallas grandes */}
+          <div>
             {activeQuestion ? (
               <div className="space-y-6">
                 <div className="flex items-center gap-3">
@@ -463,26 +463,7 @@ export function Admin() {
                     </p>
                   </div>
                 </div>
-                <QuestionEditor
-                  question={activeQuestion}
-                  onSave={async (updates) => {
-                    await updateQuestion(activeQuestion.examId, activeQuestion.sectionId, activeQuestion.id, updates);
-                  }}
-                  onDelete={() => {
-                    setConfirmModal({
-                      isOpen: true,
-                      title: `¿Eliminar pregunta Q${activeQuestion.number}?`,
-                      message: `Se eliminará definitivamente la pregunta Q${activeQuestion.number} del examen. Esta acción no se puede deshacer.`,
-                      confirmLabel: 'Eliminar Pregunta',
-                      onConfirm: async () => {
-                        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-                        await deleteQuestion(activeQuestion.examId, activeQuestion.sectionId, activeQuestion.id);
-                        setActiveQuestionId(null);
-                      },
-                    });
-                  }}
-                />
-
+                {activeQuestion.assets && activeQuestion.assets.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                     <h3 className="font-bold text-gray-900 dark:text-white text-sm flex justify-between items-center gap-2">
@@ -492,8 +473,7 @@ export function Admin() {
                   </div>
 
                   <div className="p-4 bg-gray-100 dark:bg-gray-900/50">
-                    {activeQuestion.assets && activeQuestion.assets.length > 0 ? (
-                      <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {activeQuestion.assets.map((asset, idx) => (
                           <div key={asset.id || idx} className="flex flex-col gap-2">
                             {asset.type === 'math' && asset.content && (
@@ -526,15 +506,28 @@ export function Admin() {
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
-                        <CheckCircle className="w-10 h-10 text-emerald-500/40 mb-2" />
-                        <p className="text-sm font-medium">Esta pregunta es solo de texto.</p>
-                        <p className="text-xs text-gray-500 mt-1">Las imágenes del JSON se muestran aquí automáticamente.</p>
-                      </div>
-                    )}
                   </div>
                 </div>
+                )}
+                <QuestionEditor
+                  question={activeQuestion}
+                  onSave={async (updates) => {
+                    await updateQuestion(activeQuestion.examId, activeQuestion.sectionId, activeQuestion.id, updates);
+                  }}
+                  onDelete={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      title: `¿Eliminar pregunta Q${activeQuestion.number}?`,
+                      message: `Se eliminará definitivamente la pregunta Q${activeQuestion.number} del examen. Esta acción no se puede deshacer.`,
+                      confirmLabel: 'Eliminar Pregunta',
+                      onConfirm: async () => {
+                        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+                        await deleteQuestion(activeQuestion.examId, activeQuestion.sectionId, activeQuestion.id);
+                        setActiveQuestionId(null);
+                      },
+                    });
+                  }}
+                />
               </div>
             ) : (
               <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl p-10 text-center text-gray-500 dark:text-gray-400 bg-white/50 dark:bg-gray-800/50">
@@ -548,7 +541,6 @@ export function Admin() {
               </div>
             )}
           </div>
-        </div>
         </div>
       )}
 
