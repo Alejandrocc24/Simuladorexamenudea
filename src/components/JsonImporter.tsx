@@ -708,6 +708,7 @@ export function JsonImporter({ onImportSuccess }: JsonImporterProps) {
               <li><strong className="text-gray-700 dark:text-gray-300">category:</strong> RL: Proporcionalidad y cálculo, Álgebra y patrones, Geométrico y espacial, Análisis de información, Lógica y deducción. CL: Literal, Inferencial, Analógica.</li>
               <li><strong className="text-gray-700 dark:text-gray-300">confidence:</strong> <code>"high" | "medium" | "low"</code> (interno). <code>low</code> importa la pregunta como pendiente de revisión.</li>
               <li><strong className="text-gray-700 dark:text-gray-300">difficulty:</strong> <code>"easy" | "medium" | "hard"</code>.</li>
+              <li><strong className="text-gray-700 dark:text-gray-300">explanation:</strong> acepta Markdown, LaTeX e imágenes <code>![desc](url)</code>; un dibujo SVG se pega directo o en bloque <code>```svg</code> y se muestra como figura.</li>
               <li><strong className="text-gray-700 dark:text-gray-300">assets:</strong> <code>&#123; "type": "image", "target": "statement" | "table" | "options" | "shared", "description", "croppedImage": "data:..." &#125;</code>. Ordenados: compartido → enunciado → tabla → opciones.</li>
             </ul>
             <p className="pt-1">Al importar se limpian <code>[cite: N]</code> y barras LaTeX dobles, y se rechazan JSON cortados. Columnas nuevas requeridas en Supabase: ver <code>supabase/migration_v3.sql</code>.</p>

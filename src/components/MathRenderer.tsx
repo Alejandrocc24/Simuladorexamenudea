@@ -1,13 +1,25 @@
 import React from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { renderSvgDiagrams } from '../lib/svgDiagram';
 
 interface MathRendererProps {
   text: string;
   className?: string;
+}
+
+/**
+ * Permite data-uri de imágenes (diagramas SVG generados por renderSvgDiagrams,
+ * fotos en base64). react-markdown las bloquea por defecto y dejaría el src
+ * vacío (imagen rota). El resto de URLs pasa por el filtro estándar.
+ */
+function allowDataImages(url: string): string {
+  const u = url.trim();
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(u)) return url;
+  return defaultUrlTransform(url);
 }
 
 /**
@@ -20,13 +32,15 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ text, className = ''
 
   // Clean out [cite: ...] or [cite: 1, 2] artifacts from AI extraction
   // (defensive: the importer already strips them before saving).
-  const cleanText = text.replace(/\[cite:\s*[\d,\s]+\]/gi, '').trim();
+  // Luego convierte diagramas SVG (```svg o <svg> pegado) a imágenes.
+  const cleanText = renderSvgDiagrams(text.replace(/\[cite:\s*[\d,\s]+\]/gi, '').trim());
 
   return (
     <div className={`prose-math min-w-0 max-w-full break-words leading-relaxed ${className}`}>
       <Markdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
+        urlTransform={allowDataImages}
         components={{
           table: ({ ...props }) => (
             <div className="overflow-x-auto my-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-2xs">
@@ -83,6 +97,10 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ text, className = ''
           ),
           code: ({ ...props }) => (
             <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono text-emerald-600 dark:text-emerald-400 break-words" {...props} />
+          ),
+          img: ({ ...props }) => (
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <img className="mx-auto my-3 max-w-full max-h-96 object-contain rounded-lg bg-white p-2 shadow-sm" loading="lazy" {...props} />
           )
         }}
       >
