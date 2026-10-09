@@ -353,11 +353,11 @@ export function QuestionEditor({ question, onSave, onDelete }: QuestionEditorPro
               <span className="text-[10px] text-gray-400">Paso a paso para el estudiante</span>
             </div>
             <textarea
-              rows={3}
+              rows={16}
               value={explanation}
               onChange={(e) => setExplanation(e.target.value)}
               placeholder="Explica detalladamente por qué la opción correcta es la seleccionada..."
-              className="w-full text-xs p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed font-normal"
+              className="w-full text-xs p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed font-normal resize-y min-h-[360px]"
             />
           </div>
         </div>
