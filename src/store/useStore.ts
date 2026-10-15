@@ -177,6 +177,14 @@ export const useStore = create<AppState>()((set, get) => ({
 
     const mergedQuestion = { ...currentQuestion, ...updates };
 
+    // La aprobación humana sustituye el metadato de la IA: al aprobar o
+    // publicar se limpia `confidence`, porque si queda 'low' en base, el
+    // adaptador devuelve la pregunta a revisión en la próxima carga y la
+    // aprobación "no persiste". Guardar sin cambiar estado la conserva.
+    if (mergedQuestion.status === 'APPROVED' || mergedQuestion.status === 'PUBLISHED') {
+      mergedQuestion.confidence = null;
+    }
+
     // Si cambió el enunciado, el hash de duplicados se recalcula.
     if (typeof updates.statement === 'string') {
       mergedQuestion.statementHash = statementHash(updates.statement);

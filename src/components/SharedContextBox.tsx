@@ -16,6 +16,12 @@ interface SharedContextBoxProps {
   examId?: string;
   /** Preguntas en orden de sesión para calcular posiciones (Regla 6). */
   sessionOrder?: SessionOrderItem[];
+  /**
+   * Muestra título, texto y números originales sin procesar (vista de
+   * administración). Por defecto se aplica el procesamiento de estudiante
+   * (etiqueta por posición, título "Contexto", referencias reescritas).
+   */
+  showOriginal?: boolean;
   className?: string;
   defaultExpanded?: boolean;
   /**
@@ -34,7 +40,8 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
   sessionOrder = [],
   className = '',
   defaultExpanded = true,
-  sharedImages = []
+  sharedImages = [],
+  showOriginal = false
 }) => {
   if (!sharedTexts || !Array.isArray(sharedTexts) || sharedTexts.length === 0) {
     return null;
@@ -57,6 +64,7 @@ export const SharedContextBox: React.FC<SharedContextBoxProps> = ({
           sharedText={st}
           defaultExpanded={defaultExpanded}
           sharedImages={sharedImages}
+          showOriginal={showOriginal}
           label={contextLabel(st.appliesToQuestions ?? [], sessionOrder, examId)}
         />
       ))}
@@ -70,16 +78,18 @@ interface SharedTextCardProps {
   sharedImages?: QuestionAsset[];
   /** Etiqueta calculada por posiciones de sesión (Regla 6); null = sin orden. */
   label?: string | null;
+  /** Muestra el original sin procesar (admin). */
+  showOriginal?: boolean;
 }
 
-const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded, sharedImages = [], label = null }) => {
+const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpanded, sharedImages = [], label = null, showOriginal = false }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const images = (sharedImages ?? []).filter((a) => {
     const src = a.imagePath || a.croppedImage || a.content || a.base64;
     return a.type === 'image' && !!src;
   });
-  const title = displayContextTitle(sharedText.title);
-  const body = label ? processSharedText(sharedText.text, inlineLabelOf(label)) : sharedText.text;
+  const title = showOriginal ? (sharedText.title || 'Texto de referencia') : displayContextTitle(sharedText.title);
+  const body = showOriginal || !label ? sharedText.text : processSharedText(sharedText.text, inlineLabelOf(label));
 
   return (
     <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 dark:from-indigo-950/30 dark:via-gray-900 dark:to-blue-950/20 shadow-sm overflow-hidden transition-all">
@@ -97,9 +107,13 @@ const SharedTextCard: React.FC<SharedTextCardProps> = ({ sharedText, defaultExpa
               <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-700 dark:text-indigo-300">
                 Contexto de lectura / Situación
               </span>
-              {label && (
+              {label ? (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200/70 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold">
                   {label}
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200/70 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold">
+                  Preguntas {(sharedText.appliesToQuestions ?? []).join(', ')}
                 </span>
               )}
             </div>

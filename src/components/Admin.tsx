@@ -11,6 +11,7 @@ import { QuestionsManager } from './QuestionsManager';
 import { ReportsManager } from './ReportsManager';
 import { ConfirmModal } from './ConfirmModal';
 import { QuestionEditor } from './QuestionEditor';
+import { SharedContextBox } from './SharedContextBox';
 import { UserManagement } from './UserManagement';
 
 export function Admin() {
@@ -463,6 +464,17 @@ export function Admin() {
                     </p>
                   </div>
                 </div>
+                {/* Enunciado compartido (texto original sin procesar, con sus números oficiales) */}
+                <SharedContextBox
+                  sharedTexts={activeExam?.sharedTexts}
+                  questionNumber={activeQuestion.number}
+                  examId={activeQuestion.examId}
+                  sessionOrder={(activeExam?.sections.flatMap((s) => s.questions) ?? [])
+                    .slice()
+                    .sort((a, b) => a.number - b.number)
+                    .map((q) => ({ examId: q.examId, number: q.number }))}
+                  showOriginal
+                />
                 {activeQuestion.assets && activeQuestion.assets.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
