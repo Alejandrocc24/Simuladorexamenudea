@@ -917,25 +917,9 @@ export function MockExam() {
     );
   }
 
-  // 4. RESULTS & REVIEW SCREEN
+  // 4. RESULTS SCREEN (sin revisión pregunta a pregunta)
   if (examPhase === 'results' && completedSession) {
     const session = completedSession;
-    
-    // Filter questions for review mode (se conserva la posición original
-    // en el simulacro: el estudiante no ve el número oficial Q).
-    const reviewQuestions = examQuestions
-      .map((q, originalIndex) => ({ q, originalIndex }))
-      .filter(({ q }) => {
-      const ans = session.answers[q.id];
-      const isCorrect = q.correctAnswer && ans === q.correctAnswer;
-      const isFlagged = session.flaggedQuestionIds?.includes(q.id);
-
-      if (reviewFilter === 'correct') return isCorrect;
-      if (reviewFilter === 'incorrect') return ans && !isCorrect;
-      if (reviewFilter === 'omitted') return !ans;
-      if (reviewFilter === 'flagged') return isFlagged;
-      return true;
-    });
 
     return (
       <div className="max-w-5xl mx-auto py-8 px-4 space-y-8 animate-in fade-in">
@@ -1026,159 +1010,23 @@ export function MockExam() {
           </div>
         </div>
 
-        {/* Solution Review Mode */}
-        <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 dark:border-gray-700 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="font-bold text-xl text-gray-900 dark:text-white">
-                Revisión Detallada de Preguntas
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Examina cada respuesta, explicación pedagógica y alternativa correcta.
-              </p>
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl overflow-x-auto text-xs font-semibold">
-              <button
-                onClick={() => setReviewFilter('all')}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl transition-colors whitespace-nowrap",
-                  reviewFilter === 'all' ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-white font-bold" : "text-gray-500 hover:text-gray-800"
-                )}
-              >
-                Todas ({examQuestions.length})
-              </button>
-              <button
-                onClick={() => setReviewFilter('incorrect')}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl transition-colors whitespace-nowrap text-red-600",
-                  reviewFilter === 'incorrect' ? "bg-white dark:bg-gray-800 shadow-sm font-bold" : "hover:text-red-700"
-                )}
-              >
-                Incorrectas ({session.incorrectCount})
-              </button>
-              <button
-                onClick={() => setReviewFilter('correct')}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl transition-colors whitespace-nowrap text-emerald-600",
-                  reviewFilter === 'correct' ? "bg-white dark:bg-gray-800 shadow-sm font-bold" : "hover:text-emerald-700"
-                )}
-              >
-                Correctas ({session.correctCount})
-              </button>
-              <button
-                onClick={() => setReviewFilter('omitted')}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl transition-colors whitespace-nowrap text-amber-600",
-                  reviewFilter === 'omitted' ? "bg-white dark:bg-gray-800 shadow-sm font-bold" : "hover:text-amber-700"
-                )}
-              >
-                Omitidas ({session.unansweredCount})
-              </button>
-            </div>
-          </div>
-
-          {/* List of Questions */}
-          <div className="space-y-6 pt-2">
-            {reviewQuestions.map(({ q, originalIndex }) => {
-              const userAnswer = session.answers[q.id];
-              const isCorrect = q.correctAnswer && userAnswer === q.correctAnswer;
-              const isOmitted = !userAnswer;
-
-              return (
-                <div 
-                  key={q.id}
-                  className="p-6 rounded-2xl bg-gray-50/50 dark:bg-gray-900/40 border border-gray-100 dark:border-gray-800 space-y-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-gray-900 dark:text-white">
-                        Pregunta #{originalIndex + 1}
-                      </span>
-                      <span className="text-xs text-gray-500 font-medium">
-                        ({q.sectionId === 'razonamiento-logico' ? 'Razonamiento Lógico' : 'Competencia Lectora'})
-                      </span>
-                    </div>
-
-                    <div className={cn(
-                      "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase",
-                      isCorrect ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" :
-                      isOmitted ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" :
-                      "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
-                    )}>
-                      {isCorrect ? <CheckCircle2 className="w-3.5 h-3.5" /> : isOmitted ? <AlertCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                      <span>{isCorrect ? 'Correcta' : isOmitted ? 'No Respondida' : 'Incorrecta'}</span>
-                    </div>
-                  </div>
-
-                  {/* Statement */}
-                  <div className="text-gray-900 dark:text-white text-base">
-                    <MathRenderer text={q.statement} />
-                  </div>
-
-                  {/* Options */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
-                    {q.options.map((opt) => {
-                      const isChosen = userAnswer === opt.id;
-                      const isAnswerKey = q.correctAnswer === opt.id;
-
-                      let optBoxStyle = "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300";
-                      if (isAnswerKey) {
-                        optBoxStyle = "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 font-bold";
-                      } else if (isChosen && !isAnswerKey) {
-                        optBoxStyle = "border-red-500 bg-red-50 dark:bg-red-950/40 text-red-950 dark:text-red-100 line-through";
-                      }
-
-                      return (
-                        <div 
-                          key={opt.id}
-                          className={cn("p-3 rounded-xl border flex items-start gap-2.5 text-xs", optBoxStyle)}
-                        >
-                          <span className="font-bold flex-shrink-0">{opt.id}.</span>
-                          <span className="flex-1"><MathRenderer text={opt.text} /></span>
-                          {isAnswerKey && <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-black ml-auto">CORRECTA</span>}
-                          {isChosen && !isAnswerKey && <span className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-black ml-auto">TU OPCIÓN</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Explanation */}
-                  {q.explanation && (
-                    <div className="p-4 rounded-xl bg-[#005F2B]/5 dark:bg-[#005F2B]/20 border border-[#005F2B]/20 text-xs text-[#005F2B] dark:text-emerald-200 space-y-1">
-                      <strong className="flex items-center gap-1.5 text-[#005F2B] dark:text-emerald-300">
-                        <Brain className="w-3.5 h-3.5" />
-                        Explicación Pedagógica:
-                      </strong>
-                      <div className="leading-relaxed text-gray-800 dark:text-gray-200">
-                        <MathRenderer text={q.explanation} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Action Bar */}
-          <div className="pt-6 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-4 justify-between items-center">
-            <button
-              onClick={() => setExamPhase('setup')}
-              className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-gray-300 hover:text-gray-900 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Realizar Otro Simulacro
-            </button>
-            <button
-              onClick={() => {
-                window.location.href = '/';
-              }}
-              className="px-6 py-2.5 bg-[#005F2B] hover:bg-[#004D23] text-white rounded-xl text-sm font-bold shadow-sm transition-colors cursor-pointer"
-            >
-              Volver al Dashboard
-            </button>
-          </div>
+                {/* Action Bar */}
+        <div className="pt-6 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <button
+            onClick={() => setExamPhase('setup')}
+            className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-gray-300 hover:text-gray-900 transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Realizar Otro Simulacro
+          </button>
+          <button
+            onClick={() => {
+              window.location.href = '/';
+            }}
+            className="px-6 py-2.5 bg-[#005F2B] hover:bg-[#004D23] text-white rounded-xl text-sm font-bold shadow-sm transition-colors cursor-pointer"
+          >
+            Volver al Dashboard
+          </button>
         </div>
       </div>
     );
