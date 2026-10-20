@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
-import { FileJson, Upload, AlertTriangle, CheckCircle2, RefreshCw, Plus } from 'lucide-react';
+import { FileJson, Upload, AlertTriangle, CheckCircle2, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { cn } from './Layout';
 
 interface AprendeJSON {
@@ -41,6 +41,45 @@ export function AprendeAdminCargar() {
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
   const [resumen, setResumen] = useState<{ lecciones: number; ejercicios: number; errores: string[] } | null>(null);
+
+  // Listado de lecciones existentes para eliminar
+  const [leccionesCargadas, setLeccionesCargadas] = useState<{ id: string; titulo: string; modulo: string }[]>([]);
+  const [cargandoLecciones, setCargandoLecciones] = useState(false);
+  const [eliminando, setEliminando] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    setCargandoLecciones(true);
+    supabase
+      .from('aprende_lecciones')
+      .select('id, titulo, modulo')
+      .order('titulo', { ascending: true })
+      .then(({ data, error }) => {
+        setCargandoLecciones(false);
+        if (error) {
+          setError(formatDbError(error));
+          return;
+        }
+        setLeccionesCargadas((data ?? []) as { id: string; titulo: string; modulo: string }[]);
+      });
+  }, [user]);
+
+  const eliminarLeccion = async (id: string) => {
+    if (!user) return;
+    setEliminando(id);
+    try {
+      // Primero borrar ejercicios asociados (por FK)
+      await supabase.from('aprende_ejercicios').delete().eq('leccion_id', id);
+      const { error } = await supabase.from('aprende_lecciones').delete().eq('id', id);
+      if (error) throw error;
+      setLeccionesCargadas((prev) => prev.filter((l) => l.id !== id));
+      setExito('Lección eliminada correctamente.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : formatDbError(err));
+    } finally {
+      setEliminando(null);
+    }
+  };
 
   const handleArchivos = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -271,6 +310,60 @@ export function AprendeAdminCargar() {
             <Plus className="w-4 h-4" />
             {cargando ? 'Cargando...' : 'Cargar lecciones y ejercicios'}
           </button>
+        </div>
+      </div>
+
+      {/* Listado de lecciones cargadas para eliminar */}
+      <div className="mt-6 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Trash2 className="w-5 h-5 text-red-500 dark:text-red-400" />
+            Lecciones cargadas
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {leccionesCargadas.length} lección(es) registrada(s). Puedes eliminar cualquiera.
+          </p>
+        </div>
+        <div className="p-4 space-y-3">
+          {cargandoLecciones && (
+            <div className="flex items-center justify-center py-4">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            </div>
+          )}
+          {!cargandoLecciones && leccionesCargadas.length === 0 && (
+            <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+              No hay lecciones cargadas aún.
+            </div>
+          )}
+          {!cargandoLecciones && leccionesCargadas.length > 0 && (
+            <div className="space-y-2">
+              {leccionesCargadas.map((leccion) => (
+                <div
+                  key={leccion.id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs flex-shrink-0">
+                      {leccion.titulo.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{leccion.titulo}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{leccion.modulo}</p>
+                    </div>
+                    <div>
+                      <button
+                        onClick={() => eliminarLeccion(leccion.id)}
+                        disabled={eliminando === leccion.id}
+                        className="px-3 py-1.5 text-xs font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        {eliminando === leccion.id ? 'Eliminando...' : 'Eliminar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -4,9 +4,9 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { MathRenderer } from './MathRenderer';
-import { BookOpen, ArrowLeft, RefreshCw, AlertTriangle, Save, CheckCircle2, XCircle, HelpCircle } from 'lucide-react';
+import { BookOpen, ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react';
 import { cn } from './Layout';
-import type { AprendeLeccionJSON, AprendeBloque, AprendeBloquePrueba, AprendeBloqueAutoevaluacion, AprendeBloqueEjemplo } from '../lib/aprende';
+import type { AprendeLeccionJSON, AprendeBloque } from '../lib/aprende';
 
 /** Tipos de ejercicio para Aprende (independiente de questions del simulador) */
 interface AprendeEjercicioRow {
@@ -60,7 +60,9 @@ export function AprendeLeccion() {
         if (eRes.error) throw eRes.error;
         if (pRes.error) throw pRes.error;
         if (!cancelled) {
-          setLeccion((lRes.data ?? null) as AprendeLeccionJSON | null);
+          // El JSON completo se guarda en json_completo; leer los bloques desde ahí
+          const row = lRes.data ?? null;
+          setLeccion((row?.json_completo ?? null) as AprendeLeccionJSON | null);
           setEjercicios((eRes.data ?? []) as AprendeEjercicioRow[]);
           const pMap: Record<string, string> = {};
           (pRes.data ?? []).forEach((r: any) => {
@@ -208,7 +210,6 @@ export function AprendeLeccion() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{b.descripcion}</p>
             )}
             <div className="flex justify-center overflow-x-auto bg-white dark:bg-gray-800 rounded-lg p-2">
-              {/* El SVG ya viene como cadena; se inserta directamente tras sanitizar en el servidor o aquí si es seguro */}
               <div dangerouslySetInnerHTML={{ __html: b.svg }} className="max-w-full max-h-[64vh] object-contain" />
             </div>
           </div>
@@ -281,6 +282,7 @@ export function AprendeLeccion() {
       <div className="max-w-2xl mx-auto p-8 text-center bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-sm my-12 animate-in fade-in">
         <AlertTriangle className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
         <h2 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white">Lección no encontrada</h2>
+        <p className="text-gray-500 dark:text-gray-400">No se pudo cargar la lección. Verifica que el ID sea correcto.</p>
       </div>
     );
   }
