@@ -11,6 +11,10 @@ import { NotFound } from './components/NotFound';
 import { Login } from './components/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Profile } from './components/Profile';
+import { AprendeIndex } from './components/AprendeIndex';
+import { AprendeLeccion } from './components/AprendeLeccion';
+import { AprendeEjercicio } from './components/AprendeEjercicio';
+import { AprendeAdminCargar } from './components/AprendeAdminCargar';
 import { useStore } from './store/useStore';
 
 // Simple PWA Register Hook implementation for Vite PWA
@@ -57,6 +61,10 @@ function AppRoutes() {
         <Route path="/competition" element={<RequireAuth><CompetitionMode /></RequireAuth>} />
         <Route path="/whiteboard" element={<RequireAuth><Whiteboard /></RequireAuth>} />
         <Route path="/perfil" element={<RequireAuth><Profile /></RequireAuth>} />
+        <Route path="/aprende" element={<RequireAuth><AprendeIndex /></RequireAuth>} />
+        <Route path="/aprende/:leccionId" element={<RequireAuth><AprendeLeccion /></RequireAuth>} />
+        <Route path="/aprende/ejercicio/:ejercicioId" element={<RequireAuth><AprendeEjercicio /></RequireAuth>} />
+        <Route path="/aprende/admin/cargar" element={<RequireAuth><AprendeAdminCargar /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
         <Route path="*" element={<NotFound />} />
       </Routes>

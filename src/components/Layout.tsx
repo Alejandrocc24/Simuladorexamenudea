@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut, User, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { BookOpen, PenTool, LayoutDashboard, Trophy, Download, Settings, Swords, LogIn, LogOut, User, ChevronsLeft, ChevronsRight, GraduationCap } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -73,6 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Competir (1v1)', path: '/competition', icon: Swords, adminOnly: false },
     { name: 'Pizarra', path: '/whiteboard', icon: PenTool, adminOnly: false },
     { name: 'Mi perfil', path: '/perfil', icon: User, adminOnly: false },
+    { name: 'Aprende', path: '/aprende', icon: GraduationCap, adminOnly: false },
     { name: 'Administración', path: '/admin', icon: Settings, adminOnly: true },
   ].filter((item) => !item.adminOnly || isAdmin);
 
