@@ -159,7 +159,7 @@ export function AprendeAdminCargar() {
                 tip: ej.tip ?? null,
                 comprobacion: ej.comprobacion ?? null,
                 leccion_id: ej.leccion_id ?? null,
-                verificado: ej.verificado ?? false,
+                verificado: typeof ej.verificado === 'boolean' ? ej.verificado : ej.verificado === 'true' || ej.verificado === true,
               },
               { onConflict: 'id' }
             );
