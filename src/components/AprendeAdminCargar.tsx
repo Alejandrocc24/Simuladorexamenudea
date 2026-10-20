@@ -137,7 +137,7 @@ export function AprendeAdminCargar() {
             if (insError) throw insError;
             totalLecciones++;
           } catch (err) {
-            errores.push(`${item.nombre} › lección ${lec.id}: ${err instanceof Error ? err.message : String(err)}`);
+            errores.push(`${item.nombre} › lección ${lec.id}: ${formatDbError(err)}`);
           }
         }
 
@@ -166,7 +166,7 @@ export function AprendeAdminCargar() {
             if (insError) throw insError;
             totalEjercicios++;
           } catch (err) {
-            errores.push(`${item.nombre} › ejercicio ${ej.id}: ${err instanceof Error ? err.message : String(err)}`);
+            errores.push(`${item.nombre} › ejercicio ${ej.id}: ${formatDbError(err)}`);
           }
         }
       }
