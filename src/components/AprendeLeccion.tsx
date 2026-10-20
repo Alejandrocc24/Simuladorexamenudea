@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useStore } from '../store/useStore';
+import { useAuth } from '../context/AuthContext';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { MathRenderer } from './MathRenderer';
@@ -31,13 +32,9 @@ interface AprendeProgresoRow {
   estado: string;
 }
 
-interface AprendeLeccionProps {
-  leccionId: string;
-  onEjercicioCompletado?: () => void;
-}
-
-export function AprendeLeccion({ leccionId, onEjercicioCompletado }: AprendeLeccionProps) {
-  const { user } = useStore((s) => s);
+export function AprendeLeccion() {
+  const { leccionId } = useParams<{ leccionId: string }>();
+  const { user } = useAuth();
   const [leccion, setLeccion] = useState<AprendeLeccionJSON | null>(null);
   const [ejercicios, setEjercicios] = useState<AprendeEjercicioRow[]>([]);
   const [progreso, setProgreso] = useState<Record<string, string>>({});

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useStore } from '../store/useStore';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { BookOpen, ChevronRight, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -28,7 +28,7 @@ interface AprendeProgresoRow {
 }
 
 export function AprendeIndex() {
-  const { user } = useStore((s) => s);
+  const { user } = useAuth();
   const [lecciones, setLecciones] = useState<AprendeLeccionRow[]>([]);
   const [ejercicios, setEjercicios] = useState<AprendeEjercicioRow[]>([]);
   const [progreso, setProgreso] = useState<Record<string, string>>({});

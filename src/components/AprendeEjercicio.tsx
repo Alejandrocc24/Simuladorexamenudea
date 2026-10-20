@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useStore } from '../store/useStore';
+import { useAuth } from '../context/AuthContext';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { MathRenderer } from './MathRenderer';
@@ -30,8 +31,9 @@ interface AprendeProgresoRow {
   estado: string;
 }
 
-export function AprendeEjercicio({ ejercicioId }: { ejercicioId: string }) {
-  const { user } = useStore((s) => s);
+export function AprendeEjercicio() {
+  const { ejercicioId } = useParams<{ ejercicioId: string }>();
+  const { user } = useAuth();
   const [ejercicio, setEjercicio] = useState<AprendeEjercicioRow | null>(null);
   const [progreso, setProgreso] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -117,16 +119,15 @@ export function AprendeEjercicio({ ejercicioId }: { ejercicioId: string }) {
     }
   };
 
-  const saltar = () => {
+  const saltar = async () => {
     setRespondiendo(true);
     setResultado(null);
     setMostrarExplicacion(false);
     setRespuesta(null);
     if (user) {
       setGuardando(true);
-      supabase
-        .from('aprende_progreso')
-        .upsert(
+      try {
+        await supabase.from('aprende_progreso').upsert(
           {
             user_id: user.id,
             ejercicio_id: ejercicioId,
@@ -135,12 +136,13 @@ export function AprendeEjercicio({ ejercicioId }: { ejercicioId: string }) {
             ultimo_intento_en: new Date().toISOString(),
           },
           { onConflict: 'user_id, ejercicio_id' }
-        )
-        .then(() => {
-          setProgreso((prev) => ({ ...prev, [ejercicioId]: 'omitido' }));
-        })
-        .catch(() => { })
-        .finally(() => setGuardando(false));
+        );
+        setProgreso((prev) => ({ ...prev, [ejercicioId]: 'omitido' }));
+      } catch (err) {
+        console.warn('No se pudo guardar el progreso:', err);
+      } finally {
+        setGuardando(false);
+      }
     }
     setRespondiendo(false);
   };

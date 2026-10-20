@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useStore } from '../store/useStore';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { FileJson, Upload, AlertTriangle, CheckCircle2, RefreshCw, Plus } from 'lucide-react';
@@ -34,7 +34,7 @@ interface AprendeJSON {
 }
 
 export function AprendeAdminCargar() {
-  const { user } = useStore((s) => s);
+  const { user } = useAuth();
   const [archivos, setArchivos] = useState<File[]>([]);
   const [jsonPegado, setJsonPegado] = useState('');
   const [cargando, setCargando] = useState(false);
