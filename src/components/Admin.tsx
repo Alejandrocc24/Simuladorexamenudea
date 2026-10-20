@@ -13,12 +13,13 @@ import { ConfirmModal } from './ConfirmModal';
 import { QuestionEditor } from './QuestionEditor';
 import { SharedContextBox } from './SharedContextBox';
 import { UserManagement } from './UserManagement';
+import { AprendeAdminCargar } from './AprendeAdminCargar';
 
 export function Admin() {
   const { exams, updateQuestion, deleteQuestion, deleteExam, clearAllExams, renameExam } = useStore();
   const { user, isAdmin, loading: authLoading } = useAuth();
 
-  const [adminSection, setAdminSection] = useState<'manage-questions' | 'import-review' | 'users' | 'reports'>('manage-questions');
+  const [adminSection, setAdminSection] = useState<'manage-questions' | 'import-review' | 'users' | 'reports' | 'aprende-cargar'>('manage-questions');
   const [reportsCount, setReportsCount] = useState(0);
   const [renamingExamId, setRenamingExamId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
@@ -182,6 +183,19 @@ export function Admin() {
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setAdminSection('aprende-cargar')}
+            className={cn(
+              'px-4 py-2.5 rounded-lg transition-all flex items-center gap-2',
+              adminSection === 'aprende-cargar'
+                ? 'bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 shadow-xs font-black'
+                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+            )}
+          >
+            <FileUp className="w-4 h-4 text-emerald-500" />
+            <span>Cargar Aprendizaje</span>
+          </button>
         </div>
       </div>
 
@@ -195,6 +209,8 @@ export function Admin() {
             setAdminSection('import-review');
           }}
         />
+      ) : adminSection === 'aprende-cargar' ? (
+        <AprendeAdminCargar />
       ) : adminSection === 'manage-questions' ? (
         <QuestionsManager
           onSelectQuestionForReview={(qId) => {
