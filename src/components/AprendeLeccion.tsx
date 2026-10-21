@@ -92,18 +92,18 @@ export function AprendeLeccion() {
     switch (b.bloque) {
       case 'texto':
         return (
-          <div key={idx} className="space-y-2">
+          <div key={idx} className="space-y-4">
             {b.titulo && (
-              <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-1">{b.titulo}</h3>
+              <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-2">{b.titulo}</h3>
             )}
             {b.contenido.map((c, ci) => (
-              <div key={ci} className="prose-max-w text-gray-700 dark:text-gray-300 leading-relaxed space-y-1">
-                {c.t === 'p' && <MathRenderer text={c.texto} />}
+              <div key={ci} className="prose-max-w text-gray-700 dark:text-gray-300 leading-relaxed space-y-3">
+                {c.t === 'p' && <MathRenderer text={c.texto} className="text-base" />}
                 {c.t === 'lista' && (
-                  <ul className="list-disc list-outside ml-6 space-y-1 text-gray-700 dark:text-gray-300">
+                  <ul className="list-disc list-outside ml-6 space-y-2 text-base text-gray-700 dark:text-gray-300">
                     {c.items.map((item, ii) => (
                       <li key={ii} className="leading-relaxed">
-                        <MathRenderer text={item} />
+                        <MathRenderer text={item} className="text-base" />
                       </li>
                     ))}
                   </ul>
@@ -119,7 +119,7 @@ export function AprendeLeccion() {
               <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Definición</span>
               <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900 px-2 py-0.5 rounded">{b.termino}</span>
             </div>
-            <MathRenderer text={b.contenido} className="text-gray-700 dark:text-gray-300" />
+            <MathRenderer text={b.contenido} className="text-base text-gray-700 dark:text-gray-300 leading-relaxed" />
           </div>
         );
       case 'notacion':
@@ -129,10 +129,10 @@ export function AprendeLeccion() {
               <span className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Notación</span>
               <code className="text-xs bg-gray-200 dark:bg-gray-800 px-2 py-1 rounded text-gray-800 dark:text-gray-200">{b.simbolo}</code>
             </div>
-            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            <div className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               <span className="font-semibold text-blue-700 dark:text-blue-400">Se lee:</span> <MathRenderer text={b.se_lee} className="inline" />
             </div>
-            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            <div className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               <span className="font-semibold text-blue-700 dark:text-blue-400">Ejemplo:</span>{' '}
               <MathRenderer text={b.ejemplo} className="inline" />
             </div>
@@ -144,16 +144,16 @@ export function AprendeLeccion() {
             <summary className="flex items-center gap-2 cursor-pointer list-none p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 font-semibold text-indigo-700 dark:text-indigo-300">
               <span>🔁</span> Repaso: {b.titulo}
             </summary>
-            <div className="p-4 mt-2 space-y-2 text-gray-700 dark:text-gray-300 leading-relaxed">
+            <div className="p-4 mt-2 space-y-3 text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               {b.contenido_bloques ? (
                 b.contenido_bloques.map((c, ci) => (
                   <div key={ci} className="prose-max-w">
-                    {c.t === 'p' && <MathRenderer text={c.texto} />}
+                    {c.t === 'p' && <MathRenderer text={c.texto} className="text-base" />}
                     {c.t === 'lista' && (
-                      <ul className="list-disc list-outside ml-6 space-y-1">
+                      <ul className="list-disc list-outside ml-6 space-y-2 text-base text-gray-700 dark:text-gray-300">
                         {c.items.map((item, ii) => (
                           <li key={ii} className="leading-relaxed">
-                            <MathRenderer text={item} />
+                            <MathRenderer text={item} className="text-base" />
                           </li>
                         ))}
                       </ul>
@@ -161,7 +161,7 @@ export function AprendeLeccion() {
                   </div>
                 ))
               ) : (
-                <MathRenderer text={b.contenido} />
+                <MathRenderer text={b.contenido} className="text-base" />
               )}
             </div>
           </details>
@@ -183,21 +183,21 @@ export function AprendeLeccion() {
                 <span className="text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 px-2 py-0.5 rounded">{b.titulo}</span>
               </div>
             )}
-            <MathRenderer text={b.enunciado} className="text-gray-700 dark:text-gray-300 leading-relaxed" />
+            <MathRenderer text={b.enunciado} className="text-base text-gray-700 dark:text-gray-300 leading-relaxed" />
             {b.paso.length > 0 && (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Pasos:</p>
+              <div className="mt-3 space-y-3">
+                <p className="text-sm font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">Pasos:</p>
                 {b.paso.map((p, pi) => (
                   <div key={pi} className="pl-4 border-l-2 border-blue-200 dark:border-blue-800 ml-2">
-                    <MathRenderer text={p.texto} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed" />
+                    <MathRenderer text={p.texto} className="text-base text-gray-700 dark:text-gray-300 leading-relaxed" />
                   </div>
                 ))}
               </div>
             )}
             {b.comprobacion && (
               <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-800">
-                <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Comprobación:</p>
-                <MathRenderer text={b.comprobacion} className="text-sm text-gray-700 dark:text-gray-300" />
+                <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">Comprobación:</p>
+                <MathRenderer text={b.comprobacion} className="text-base text-gray-700 dark:text-gray-300 leading-relaxed" />
               </div>
             )}
           </div>
@@ -219,7 +219,7 @@ export function AprendeLeccion() {
           <div key={idx} className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
             <div className="flex items-start gap-2">
               <span className="text-amber-700 dark:text-amber-400 mt-0.5">⚠️</span>
-              <MathRenderer text={b.texto} className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed" />
+              <MathRenderer text={b.texto} className="text-base text-amber-800 dark:text-amber-300 leading-relaxed" />
             </div>
           </div>
         );
@@ -230,7 +230,7 @@ export function AprendeLeccion() {
               <span className="text-blue-700 dark:text-blue-400 mt-0.5">💡</span>
               <div>
                 {b.titulo && <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">{b.titulo}</p>}
-                <MathRenderer text={b.contenido} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed" />
+                <MathRenderer text={b.contenido} className="text-base text-gray-700 dark:text-gray-300 leading-relaxed" />
               </div>
             </div>
           </div>
@@ -240,7 +240,7 @@ export function AprendeLeccion() {
           <div key={idx} className="p-4 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-xl">
             <div className="flex items-start gap-2">
               <span className="text-purple-700 dark:text-purple-400 mt-0.5">📋</span>
-              <MathRenderer text={b.texto ?? b.contenido ?? ''} className="text-sm text-purple-800 dark:text-purple-300 leading-relaxed" />
+              <MathRenderer text={b.texto ?? b.contenido ?? ''} className="text-base text-purple-800 dark:text-purple-300 leading-relaxed" />
             </div>
           </div>
         );
@@ -289,7 +289,7 @@ export function AprendeLeccion() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto py-6 px-4 space-y-6 animate-in fade-in">
+    <div className="max-w-7xl mx-auto py-6 px-4 space-y-8 animate-in fade-in">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white flex items-center gap-2">
