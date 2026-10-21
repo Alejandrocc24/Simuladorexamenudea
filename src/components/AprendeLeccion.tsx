@@ -245,6 +245,7 @@ export function AprendeLeccion() {
           </div>
         );
       case 'fuentes':
+        if (!modoRevision) return null;
         return (
           <div key={idx} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl">
             <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Fuentes</h4>
@@ -288,7 +289,7 @@ export function AprendeLeccion() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-6 px-4 space-y-6 animate-in fade-in">
+    <div className="max-w-6xl mx-auto py-6 px-4 space-y-6 animate-in fade-in">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white flex items-center gap-2">
