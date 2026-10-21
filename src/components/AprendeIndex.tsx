@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { BookOpen, ChevronRight, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -29,6 +30,7 @@ interface AprendeProgresoRow {
 
 export function AprendeIndex() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [lecciones, setLecciones] = useState<AprendeLeccionRow[]>([]);
   const [ejercicios, setEjercicios] = useState<AprendeEjercicioRow[]>([]);
   const [progreso, setProgreso] = useState<Record<string, string>>({});
@@ -158,7 +160,7 @@ export function AprendeIndex() {
               const pct = total > 0 ? Math.round((completados / total) * 100) : 0;
               return (
                 <div key={l.id} className="group border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden hover:border-gray-200 dark:hover:border-gray-600">
-                  <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 cursor-pointer" onClick={() => window.location.href = `/aprende/${l.id}`}>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 cursor-pointer" onClick={() => navigate(`/aprende/${l.id}`)}>
                     <div className="flex items-center gap-3">
                       <h3 className="font-semibold text-gray-900 dark:text-white truncate">{l.titulo}</h3>
                     </div>
