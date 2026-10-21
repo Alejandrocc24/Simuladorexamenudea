@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDbError } from '../lib/supabase';
 import { MathRenderer } from './MathRenderer';
@@ -313,6 +313,9 @@ export function AprendeLeccion() {
             Modo revisión (docente)
           </button>
         )}
+        <Link to="/aprende" className="text-xs font-bold text-gray-600 dark:text-gray-300 hover:underline">
+          ← Volver a Aprende
+        </Link>
       </div>
 
       {bloques.length > 0 ? (
